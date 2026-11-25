@@ -64,7 +64,7 @@ Responsável pela experiência de painel de controle em paisagem, persistência 
   - Monta e dispara o pacote mágico UDP diretamente para o endereço MAC salvo na mesma rede local, operando de forma totalmente independente do agente desktop.
 - **Cliente WebSocket LAN:**
   - Abre e mantém a conexão WebSocket (`ws://`) com a **API LAN** na porta configurada, autenticando com o token pareado.
-  - Recebe o fluxo contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia, envia comandos (**play/pause**, **faixa**, **volume**, **desligar**, **suspender**, **bloquear**, **reiniciar**) e gerencia a máquina de estados da tela (*Desligada/Offline*, *Inicializando*, *Online*, *Indisponível/Erro*).
+  - Recebe o fluxo contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia, envia comandos (**play/pause**, **faixa**, **volume**, **desligar**, **bloquear**, **reiniciar**) e gerencia a máquina de estados da tela (*Desligada/Offline*, *Inicializando*, *Online*, *Indisponível/Erro*).
 - **Camada de Interface (Paisagem + Swipe + Drawer):**
   - Menu lateral com lista de máquinas e botão inferior para adicionar máquina via QR Code.
   - Navegação por swipe entre **Tela 1** (Energia, WoL e Métricas) e **Tela 2** (Controle de Mídia), com confirmação preventiva antes de desligar e reiniciar.
@@ -80,7 +80,9 @@ Responsável pela experiência de painel de controle em paisagem, persistência 
 - **Controlador de Mídia (Adapters por Plataforma):**
   - Isola a integração com o SO (implementações específicas para **Windows** e **macOS**) para comandos (`play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`) e leitura do estado atual.
 - **Controlador de Energia (Adapters por Plataforma):**
-  - Isola os comandos nativos de energia e bloqueio para **Windows** e **macOS** (**desligar**, **suspender**, **bloquear** e **reiniciar**), enviando `command_ack` antes da transição de estado.
+  - Implementa **desligar**, **bloquear** e **reiniciar** com APIs nativas no Windows e automação do System Events no macOS. Suspensão não está implementada nesta etapa.
+  - O agente envia `command_ack` somente depois que a chamada ao sistema retorna sucesso; em caso de falha de execução/permissão, envia `command_error`. O ACK confirma que o sistema aceitou o pedido, não que a transição já terminou.
+  - “Ligar” não é comando do daemon: com o agente offline, o app envia WoL diretamente à máquina usando o MAC do perfil. No macOS, WoL para ligar de um desligamento completo não é garantido.
 - **Autostart de Sessão (Adapters por Plataforma):**
   - Registra e gerencia a inicialização automática na sessão do usuário no **Windows** e no **macOS**.
 - **Gerenciador de Identidade e Pareamento:**
@@ -96,7 +98,7 @@ O agente escuta em uma única porta configurada e separa o acesso conforme a int
 - **Acesso:** Disponível na interface de rede local para o app Flutter na mesma rede, exigindo autenticação via **token de pareamento**.
 - **Responsabilidades:**
   - Streaming contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia.
-  - Envio de comandos de mídia e energia com retorno de confirmação/erro.
+  - Envio de comandos de mídia e energia com retorno de confirmação/erro. Para energia, o ACK significa aceitação pelo SO; `command_error` reporta rejeições e erros de permissão.
   - Verificação de disponibilidade do agente após um disparo de WoL.
 
 ### B. API Admin (HTTP — Interface Localhost)
@@ -121,3 +123,4 @@ Utilitário de linha de comando (compatível com **Windows** e **macOS**) que co
 ## 5. Camada de Wake-on-LAN (WoL)
 - Fluxo direto entre o **app Flutter** e a interface de rede da máquina na mesma rede local.
 - O app dispara o pacote mágico UDP utilizando o **MAC address** salvo via QR Code e monitora a abertura/resposta do **WebSocket da API LAN** para transicionar o estado de *Inicializando* para *Online*.
+- O daemon não pode receber um comando de ligar enquanto está offline. No Windows, WoL depende de suporte e configuração de BIOS/UEFI e adaptador de rede. No macOS, o despertar de repouso depende do modelo/configuração; não prometer inicialização a partir do desligamento completo.

@@ -37,6 +37,8 @@ O pareamento transfere todas as credenciais e parâmetros de rede de uma única 
 
 ### C. Segurança Operacional de Comandos Sensíveis
 - Ações destrutivas ou disruptivas (**Desligar** e **Reiniciar**) exigem confirmação explícita na interface do app antes do disparo do evento ao agente.
+- O agente é executado na sessão interativa do usuário, não como serviço isolado. No Windows, a conta precisa ter o direito de desligar o sistema. No macOS, a automação pode exigir permissões de **Acessibilidade** e **Automação** em *Ajustes do Sistema → Privacidade e Segurança*.
+- O daemon nunca armazena senha administrativa. Se o sistema operacional negar ou não autorizar uma ação, o agente retorna `command_error`.
 
 ---
 
@@ -71,8 +73,9 @@ A comunicação sobre `ws://` é bidirecional e orientada a eventos estruturados
 - **`media_command`:**
   - Ações: `play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`
 - **`power_command`:**
-  - Ações: `shutdown` (desligar), `suspend` (suspender), `lock` (bloquear), `restart` (reiniciar)
+  - Ações implementadas: `shutdown` (desligar), `lock` (bloquear), `restart` (reiniciar).
+  - `suspend` ainda não está implementada. `wake` também não é um comando WebSocket: o app envia WoL diretamente quando o agente está offline.
 
 ### 4. Confirmação e Erro (Agente → App)
-- **`command_ack`:** Confirma que o comando foi recebido e aceito para execução (especialmente crítico antes de `shutdown`, `suspend` ou `restart`, pois a conexão cairá logo em seguida).
-- **`command_error`:** Informa falha na execução (ex.: falta de permissão no SO, ausência de sessão de mídia ativa ou comando inválido).
+- **`command_ack`:** Confirma que o comando foi recebido e que o sistema operacional aceitou a solicitação. Não garante que a transição de energia já terminou; a conexão pode cair logo depois de desligar/reiniciar.
+- **`command_error`:** Informa que a ação não foi aceita ou não pôde ser iniciada (ex.: falta de permissão do SO, ausência de sessão de mídia ativa ou comando inválido). Em caso de erro, o agente não envia `command_ack` para aquela ação.

@@ -23,11 +23,12 @@
 - **Ausência de reprodução:** Quando não houver mídia ativa, o agente deve reportar estado *sem mídia* de forma estável, sem erro fatal.
 
 ### C. Ações de Energia
-- **Ações suportadas no MVP:** `shutdown` (desligar), `suspend` (suspender), `lock` (bloquear) e `restart` (reiniciar).
+- **Ações implementadas:** `shutdown` (desligar), `lock` (bloquear) e `restart` (reiniciar), em Windows e macOS. `suspend` fica para uma etapa futura.
+- **Ligar / acordar:** Não é uma ação executada pelo daemon. O app envia WoL diretamente ao MAC quando o agente está offline. O alcance depende do hardware e do estado de energia; para Macs, não há garantia de ligar após desligamento completo.
 - **Execução por plataforma:**
-  - **Windows:** Acionamento dos comandos/APIs nativas do Windows para bloqueio, suspensão, reinicialização e desligamento.
-  - **macOS:** Acionamento dos mecanismos nativos do macOS para bloqueio de sessão, repouso (*sleep*), reinicialização e desligamento (observando eventuais permissões necessárias para `shutdown`/`restart` sem prompt bloqueante).
-- **Confirmação prévia ao app:** O agente deve enviar `command_ack` ao app Flutter **antes** de disparar `shutdown`, `suspend` ou `restart`, garantindo feedback ao usuário antes da desconexão.
+  - **Windows:** Bloqueio via `LockWorkStation`; desligamento/reinício via API `ExitWindowsEx`, habilitando o privilégio `SeShutdownPrivilege` do processo quando disponível. O agente deve permanecer na sessão interativa; a conta precisa ter o direito do Windows de desligar o sistema.
+  - **macOS:** Bloqueio via atalho do sistema acionado pelo System Events; desligamento/reinício solicitados ao System Events via `osascript`. O processo precisa rodar na sessão gráfica do usuário. A ação de bloqueio exige autorização de Acessibilidade; o controle do System Events pode exigir autorização de Automação. Se o usuário negar ou a chamada falhar, o agente retorna erro.
+- **ACK e erro:** O agente envia `command_ack` depois que a chamada do SO retorna sucesso, antes da conclusão da transição quando possível. Esse ACK significa que a solicitação foi aceita, não confirma que a máquina já desligou/reiniciou. Em falha, retorna `command_error` sem ACK.
 
 ### D. Coleta de Métricas (CPU, RAM e Rede)
 - **CPU:** Percentual de utilização agregado no intervalo de amostragem de **1 segundo**.
@@ -43,7 +44,7 @@
   - **macOS:** Garantir permissão de *Rede Local* e eventuais permissões de *Acessibilidade / Automação* em *Ajustes do Sistema → Privacidade e Segurança* necessárias para controle de mídia/sistema.
 - **Wake-on-LAN (WoL):**
   - **Windows:** *Wake-on-LAN* habilitado na BIOS/UEFI, *Magic Packet* habilitado nas propriedades avançadas da placa de rede (preferencialmente Ethernet) e *Inicialização Rápida (Fast Startup)* ajustada/desativada caso impeça o despertar após desligamento completo.
-  - **macOS:** Considerar que MacBooks não possuem porta Ethernet nativa (dependendo de adaptador compatível quando via cabo) e que o despertar via Wi-Fi costuma funcionar de forma confiável quando a máquina está **em repouso e na tomada**, podendo não acordar a partir de desligamento total.
+  - **macOS:** O recurso *Wake for network access* pode acordar alguns Macs em repouso, conforme modelo, rede e configuração. Não tratar WoL como método garantido para iniciar um Mac desligado. MacBooks podem depender de adaptador de rede compatível para WoL por Ethernet.
 
 ---
 
