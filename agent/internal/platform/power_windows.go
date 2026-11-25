@@ -11,12 +11,6 @@ import (
 	"unsafe"
 )
 
-func (*Native) MediaState(context.Context) (MediaState, error) {
-	return MediaState{Status: "unavailable", Playback: "unavailable", Error: "integração GSMTC do Windows ainda não implementada"}, nil
-}
-
-func (*Native) ExecuteMedia(context.Context, string, *float64) error { return ErrNotImplemented }
-
 var (
 	user32Power               = syscall.NewLazyDLL("user32.dll")
 	procLockWorkStation       = user32Power.NewProc("LockWorkStation")

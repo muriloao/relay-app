@@ -18,7 +18,7 @@
 
 ### B. Controle de Mídia e Áudio
 - **Sessão de mídia e volume:**
-  - **Windows:** Objetivo de integração com a sessão de mídia ativa e dispositivo de áudio padrão para comandos e metadados. O adaptador ainda não está implementado.
+  - **Windows:** Sessão ativa consultada/controlada via GSMTC, com metadados de título, artista e aplicativo de origem. Volume master e estado de mudo usam Core Audio no dispositivo de saída padrão; `set_volume` aproxima o percentual solicitado ao passo de volume suportado mais próximo. O agente deve rodar na sessão interativa do usuário; players que não publicam uma sessão GSMTC podem não aparecer.
   - **macOS (implementação inicial):** Apple Music e Spotify via AppleScript para reprodução/metadados; áudio master via `osascript`. Outros players ainda não são consultados.
 - **Ausência de reprodução:** Quando não houver mídia ativa, o agente deve reportar estado *sem mídia* de forma estável, sem erro fatal.
 

@@ -54,8 +54,8 @@ docs/                  visão geral e requisitos do produto
 - No macOS, o usuário pode precisar autorizar o controle do System Events e o acesso de Acessibilidade para o processo que executa o agente. Faça essa autorização durante um teste local antes de iniciar o agente sem terminal.
 - Wake-on-LAN é enviado pelo app, não pelo daemon. Ligar um Mac totalmente desligado não é garantido; o suporte depende do modelo e do estado de energia.
 - macOS: controle e estado de Apple Music e Spotify via AppleScript, com volume master do sistema. O macOS pode solicitar permissão de Automação/Acessibilidade; outros players ainda não são consultados.
+- Windows: consulta e controle da sessão ativa via Windows GSMTC, metadados de título/artista/origem e volume master/mudo via Core Audio. `set_volume` ajusta ao passo de volume suportado mais próximo pelo dispositivo. O processo precisa rodar na sessão interativa do usuário; aplicativos que não publicam sessão GSMTC não aparecem como mídia ativa.
 - WebSocket envia `media_state` ao autenticar e quando o snapshot mudar. O snapshot contém `status`, `playback`, `player`, `title`, `artist`, `volume` (0–100) e `muted`; `no_media` é um estado normal.
-- Windows: o contrato e o evento estão conectados, mas o adaptador da sessão GSMTC e do volume master ainda precisa ser implementado. O estado informa `unavailable` nessa plataforma neste estágio.
 - `suspend` ainda não faz parte das ações implementadas; as ações remotas disponíveis são `shutdown`, `lock` e `restart`.
 - Inicialização automática no logon, instância única, firewall e serviço em segundo plano ainda precisam ser implementados.
 - O esquema de métricas usa `cpu_percent`, `memory_used_bytes`, `memory_total_bytes`, `download_bytes_per_second` e `upload_bytes_per_second`.
@@ -63,7 +63,7 @@ docs/                  visão geral e requisitos do produto
 ## Próximos passos sugeridos
 
 1. Validar valores de CPU, RAM e rede no Windows e no macOS com clientes conectados.
-2. Implementar e validar o adaptador GSMTC/volume master no Windows e testar Apple Music/Spotify no macOS.
-3. Validar no app o contrato de eventos `media_state`.
+2. Validar sessão GSMTC, áudio master e comandos em execução em uma máquina Windows; testar Apple Music/Spotify no macOS.
+3. Validar no app o contrato e as mudanças de `media_state` nas duas plataformas.
 4. Acrescentar instalação/autostart e prevenção de instância duplicada.
 5. Integrar firewall e empacotamento para distribuição.

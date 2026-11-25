@@ -90,7 +90,12 @@ func (n *Native) ExecuteMedia(ctx context.Context, action string, value *float64
 		return runAppleScriptAction(ctx, fmt.Sprintf("set volume output volume %d", int(*value+0.5)))
 	}
 	if action == "toggle_mute" {
-		return runAppleScriptAction(ctx, `set volume without output muted`)
+		return runAppleScriptAction(ctx, `set volumeInfo to get volume settings
+if output muted of volumeInfo is true then
+  set volume without output muted
+else
+  set volume with output muted
+end if`)
 	}
 	if action != "play_pause" && action != "next" && action != "previous" {
 		return fmt.Errorf("ação de mídia desconhecida: %s", action)
