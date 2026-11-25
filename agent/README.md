@@ -1,11 +1,11 @@
-# Relay — daemon para Windows
+# Relay — agente desktop
 
 Este diretório contém a base inicial do daemon Go descrito em [`../docs/`](../docs/01-visao-geral.md). O processo roda na sessão do usuário. A CLI permite iniciar o daemon, consultar seu estado e gerar o QR de pareamento.
 
 ## Requisitos
 
 - Go 1.23 ou superior
-- Windows como plataforma alvo do MVP (o código de transporte também pode ser desenvolvido em outros sistemas)
+- Windows ou macOS para ações de energia; o código de transporte também pode ser desenvolvido em outros sistemas
 
 ## Executar
 
@@ -45,14 +45,20 @@ docs/                  visão geral e requisitos do produto
 - A API Admin e a API WebSocket compartilham a mesma porta; rotas `/admin/*` só respondem a clientes loopback.
 - `/ws` exige a mensagem inicial `{"type":"auth","token":"…"}` e transmite `auth_ok` ou `auth_error`.
 - Métricas são amostradas a cada segundo somente enquanto existir cliente autenticado.
-- O adaptador `platform.Stub` ainda não integra as APIs de mídia, áudio, energia ou métricas do Windows. Os comandos retornam erro de integração pendente.
+- Bloquear, desligar e reiniciar usam integração nativa no Windows e automação do System Events no macOS.
+- No Windows, o processo deve estar na sessão interativa do usuário e a conta precisa ter o direito de desligar o sistema.
+- No macOS, o usuário pode precisar autorizar o controle do System Events e o acesso de Acessibilidade para o processo que executa o agente. Faça essa autorização durante um teste local antes de iniciar o agente sem terminal.
+- Wake-on-LAN é enviado pelo app, não pelo daemon. Ligar um Mac totalmente desligado não é garantido; o suporte depende do modelo e do estado de energia.
+- Coleta real de métricas e controle de mídia/áudio ainda não foram implementados.
+- `suspend` ainda não faz parte das ações implementadas; as ações remotas disponíveis são `shutdown`, `lock` e `restart`.
 - Inicialização automática no logon, instância única, firewall e serviço em segundo plano ainda precisam ser implementados.
 - O esquema de métricas usa `cpu_percent`, `memory_used_bytes`, `memory_total_bytes`, `download_bytes_per_second` e `upload_bytes_per_second`.
 
 ## Próximos passos sugeridos
 
-1. Implementar coleta Windows de CPU, RAM e rede no adaptador `platform`.
-2. Implementar mídia e áudio da sessão do usuário e comandos nativos de energia.
-3. Definir o contrato final de eventos `media_state` e validação inicial do app.
-4. Acrescentar instalação/autostart e prevenção de instância duplicada no Windows.
-5. Integrar firewall e empacotamento para distribuição.
+1. Validar bloqueio, desligamento e reinício no Windows e no macOS com o agente executado na sessão do usuário.
+2. Implementar coleta de CPU, RAM e rede no adaptador `platform`.
+3. Implementar mídia e áudio da sessão do usuário.
+4. Definir o contrato final de eventos `media_state` e validação inicial do app.
+5. Acrescentar instalação/autostart e prevenção de instância duplicada.
+6. Integrar firewall e empacotamento para distribuição.
