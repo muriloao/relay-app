@@ -64,14 +64,19 @@ A comunicação sobre `ws://` é bidirecional e orientada a eventos estruturados
   - Uso percentual de **CPU**
   - Uso e total/disponível de **RAM**
   - Taxa atual de **rede** (download e upload)
+- O envelope de `metrics_update` inclui `status: "ok"`. CPU e taxas de rede são derivadas de diferenças entre contadores; a primeira amostra após conectar/reconectar serve como base e pode trazer esses valores em zero.
+- **`metrics_error`:** Enviado quando uma ou mais fontes falharem. Inclui `status: "error"`, timestamp e lista `failures` com a fonte (`cpu`, `memory` ou `network`) e a mensagem. O app marca as métricas como falhas/desatualizadas; quando a coleta normalizar, o próximo `metrics_update` com `status: "ok"` limpa o estado de falha.
+- A taxa de rede agrega todas as interfaces marcadas como ativas, exceto loopback; interfaces virtuais ativas também entram na soma. Queda/reset de contador produz taxa zero naquela amostra e atualiza a referência para a próxima.
 - **`media_state`:** Enviado na conexão inicial e sempre que houver mudança no player ativo do sistema:
-  - Estado de reprodução (*tocando*, *pausado*, *sem mídia*)
-  - Metadados básicos disponíveis (título, artista/aplicativo de origem)
-  - Nível atual de volume e status de mudo
+  - `status`: `ok`, `no_media`, `unavailable` ou `error`.
+  - `payload`: `playback` (`playing`, `paused`, `no_media` ou `unavailable`), `player`, `title`, `artist`, `volume` (0–100), `muted` e, em falha, `error`.
+  - O agente envia uma amostra ao autenticar e volta a enviar quando qualquer campo mudar. A coleta é feita a cada segundo enquanto houver cliente autenticado.
+  - `no_media` é um estado normal; `unavailable` indica que a plataforma ainda não dispõe de adaptador de mídia.
 
 ### 3. Comandos de Controle (App → Agente)
 - **`media_command`:**
   - Ações: `play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`
+  - `set_volume` recebe `value` numérico de 0 a 100 e altera o volume master do sistema. Os controles de faixa exigem uma sessão de mídia disponível.
 - **`power_command`:**
   - Ações implementadas: `shutdown` (desligar), `lock` (bloquear), `restart` (reiniciar).
   - `suspend` ainda não está implementada. `wake` também não é um comando WebSocket: o app envia WoL diretamente quando o agente está offline.

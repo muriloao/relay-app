@@ -18,8 +18,8 @@
 
 ### B. Controle de Mídia e Áudio
 - **Sessão de mídia e volume:**
-  - **Windows:** Integração com a sessão de mídia ativa e o dispositivo de áudio padrão da sessão do usuário para `play_pause`, `next`, `previous`, `set_volume`, `toggle_mute` e leitura do estado/metadados.
-  - **macOS:** Integração com controles de mídia/sistema e áudio da sessão do usuário (`set_volume`, `toggle_mute`, `play_pause`, `next`, `previous` e metadados quando disponíveis).
+  - **Windows:** Objetivo de integração com a sessão de mídia ativa e dispositivo de áudio padrão para comandos e metadados. O adaptador ainda não está implementado.
+  - **macOS (implementação inicial):** Apple Music e Spotify via AppleScript para reprodução/metadados; áudio master via `osascript`. Outros players ainda não são consultados.
 - **Ausência de reprodução:** Quando não houver mídia ativa, o agente deve reportar estado *sem mídia* de forma estável, sem erro fatal.
 
 ### C. Ações de Energia

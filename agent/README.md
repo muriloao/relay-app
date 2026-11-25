@@ -46,12 +46,16 @@ docs/                  visão geral e requisitos do produto
 - `/ws` exige a mensagem inicial `{"type":"auth","token":"…"}` e transmite `auth_ok` ou `auth_error`.
 - Métricas de CPU, RAM e rede são coletadas com `gopsutil` a cada segundo somente enquanto existir cliente autenticado.
 - CPU e taxas de rede são calculadas por diferença entre contadores; a primeira amostra após conectar/reconectar inicializa a base e pode trazer CPU/rede em zero.
-- Rede agrega interfaces ativas que não sejam loopback. O suporte de contadores de rede do `gopsutil` no macOS é parcial e precisa de validação em execução; se os valores forem inconsistentes, será usado um coletor nativo para rede no macOS.
+- Rede agrega todas as interfaces ativas que não sejam loopback, inclusive interfaces virtuais. Queda/reset de contador retorna taxa zero na amostra e redefine a base.
+- Falhas de fonte são enviadas como `metrics_error` com as fontes e mensagens; o cliente pode marcar esses dados como desatualizados até o próximo `metrics_update` (`status: "ok").
+- O suporte de contadores de rede do `gopsutil` no macOS é parcial e precisa de validação em execução; se os valores forem inconsistentes, será usado um coletor nativo para rede no macOS.
 - Bloquear, desligar e reiniciar usam integração nativa no Windows e automação do System Events no macOS.
 - No Windows, o processo deve estar na sessão interativa do usuário e a conta precisa ter o direito de desligar o sistema.
 - No macOS, o usuário pode precisar autorizar o controle do System Events e o acesso de Acessibilidade para o processo que executa o agente. Faça essa autorização durante um teste local antes de iniciar o agente sem terminal.
 - Wake-on-LAN é enviado pelo app, não pelo daemon. Ligar um Mac totalmente desligado não é garantido; o suporte depende do modelo e do estado de energia.
-- Controle de mídia/áudio ainda não foi implementado.
+- macOS: controle e estado de Apple Music e Spotify via AppleScript, com volume master do sistema. O macOS pode solicitar permissão de Automação/Acessibilidade; outros players ainda não são consultados.
+- WebSocket envia `media_state` ao autenticar e quando o snapshot mudar. O snapshot contém `status`, `playback`, `player`, `title`, `artist`, `volume` (0–100) e `muted`; `no_media` é um estado normal.
+- Windows: o contrato e o evento estão conectados, mas o adaptador da sessão GSMTC e do volume master ainda precisa ser implementado. O estado informa `unavailable` nessa plataforma neste estágio.
 - `suspend` ainda não faz parte das ações implementadas; as ações remotas disponíveis são `shutdown`, `lock` e `restart`.
 - Inicialização automática no logon, instância única, firewall e serviço em segundo plano ainda precisam ser implementados.
 - O esquema de métricas usa `cpu_percent`, `memory_used_bytes`, `memory_total_bytes`, `download_bytes_per_second` e `upload_bytes_per_second`.
@@ -59,7 +63,7 @@ docs/                  visão geral e requisitos do produto
 ## Próximos passos sugeridos
 
 1. Validar valores de CPU, RAM e rede no Windows e no macOS com clientes conectados.
-2. Implementar mídia e áudio da sessão do usuário.
-3. Definir o contrato final de eventos `media_state` e validação inicial do app.
+2. Implementar e validar o adaptador GSMTC/volume master no Windows e testar Apple Music/Spotify no macOS.
+3. Validar no app o contrato de eventos `media_state`.
 4. Acrescentar instalação/autostart e prevenção de instância duplicada.
 5. Integrar firewall e empacotamento para distribuição.

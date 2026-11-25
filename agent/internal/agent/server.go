@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,11 +20,13 @@ import (
 )
 
 type Server struct {
-	cfg      config.Config
-	log      *slog.Logger
-	platform platform.Provider
-	clients  sync.Map
-	started  time.Time
+	cfg       config.Config
+	log       *slog.Logger
+	platform  platform.Provider
+	clients   sync.Map
+	mediaMu   sync.Mutex
+	lastMedia []byte
+	started   time.Time
 }
 
 func New(cfg config.Config, logger *slog.Logger) *Server {
@@ -116,6 +119,7 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clients.Store(c, struct{}{})
 	defer s.clients.Delete(c)
+	s.publishMedia(ctx, c, true)
 	for {
 		_, raw, err := c.Read(ctx)
 		if err != nil {
@@ -195,9 +199,27 @@ func (s *Server) broadcastMetrics(ctx context.Context) {
 			ticker.Stop()
 			return
 		case <-ticker.C:
+			s.publishMedia(ctx, nil, false)
 			metrics, err := s.platform.Metrics(ctx)
 			if err != nil {
 				s.log.Warn("metrics collection failed", "error", err)
+				var metricsErr *platform.MetricsError
+				failures := make([]protocol.MetricSourceFailure, 0, 1)
+				if errors.As(err, &metricsErr) {
+					for _, failure := range metricsErr.Failures {
+						failures = append(failures, protocol.MetricSourceFailure{Source: failure.Source, Message: failure.Message})
+					}
+				} else {
+					failures = append(failures, protocol.MetricSourceFailure{Source: "collector", Message: err.Error()})
+				}
+				payload := protocol.MetricsFailure{Status: "error", Timestamp: time.Now().UTC(), Failures: failures}
+				s.clients.Range(func(key, _ any) bool {
+					c := key.(*websocket.Conn)
+					writeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+					defer cancel()
+					_ = c.Write(writeCtx, websocket.MessageText, marshal(protocol.Response{Type: "metrics_error", Status: "error", Payload: payload}))
+					return true
+				})
 				continue
 			}
 			payload := marshal(metrics)
@@ -205,9 +227,37 @@ func (s *Server) broadcastMetrics(ctx context.Context) {
 				c := key.(*websocket.Conn)
 				writeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 				defer cancel()
-				_ = c.Write(writeCtx, websocket.MessageText, marshal(protocol.Response{Type: "metrics_update", Payload: json.RawMessage(payload)}))
+				_ = c.Write(writeCtx, websocket.MessageText, marshal(protocol.Response{Type: "metrics_update", Status: "ok", Payload: json.RawMessage(payload)}))
 				return true
 			})
 		}
 	}
+}
+
+func (s *Server) publishMedia(ctx context.Context, only *websocket.Conn, force bool) {
+	state, err := s.platform.MediaState(ctx)
+	if err != nil {
+		state = platform.MediaState{Status: "error", Playback: "unavailable", Error: err.Error()}
+	}
+	body, _ := json.Marshal(state)
+	s.mediaMu.Lock()
+	changed := !bytes.Equal(body, s.lastMedia)
+	if changed {
+		s.lastMedia = append(s.lastMedia[:0], body...)
+	}
+	s.mediaMu.Unlock()
+	if !force && !changed {
+		return
+	}
+	response := marshal(protocol.Response{Type: "media_state", Status: state.Status, Payload: json.RawMessage(body)})
+	sendTo := func(c *websocket.Conn) {
+		writeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		_ = c.Write(writeCtx, websocket.MessageText, response)
+	}
+	if only != nil {
+		sendTo(only)
+		return
+	}
+	s.clients.Range(func(key, _ any) bool { sendTo(key.(*websocket.Conn)); return true })
 }

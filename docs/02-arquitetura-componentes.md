@@ -76,9 +76,11 @@ Responsável pela experiência de painel de controle em paisagem, persistência 
 
 ### Subcomponentes Internos (Núcleo / Core)
 - **Coletor de Métricas:**
-  - Lê periodicamente uso de **CPU**, consumo de **RAM** e tráfego de **rede** (a cada 1 segundo quando há cliente conectado).
+  - Lê periodicamente uso de **CPU**, consumo de **RAM** e tráfego de **rede** (a cada 1 segundo quando há cliente conectado), agregando todas as interfaces ativas exceto loopback.
+  - Envia `metrics_error` com as fontes que falharem; a próxima atualização saudável envia `status: "ok"`. A primeira amostra após reconexão só estabelece a base dos contadores.
 - **Controlador de Mídia (Adapters por Plataforma):**
-  - Isola a integração com o SO (implementações específicas para **Windows** e **macOS**) para comandos (`play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`) e leitura do estado atual.
+  - Isola a integração com o SO para comandos (`play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`) e leitura do estado atual. A implementação inicial cobre Apple Music e Spotify no macOS; o adaptador Windows ainda está pendente.
+  - Publica `media_state` ao autenticar e quando o snapshot muda. `no_media` representa ausência normal de sessão compatível; `unavailable` indica falta de adaptador na plataforma.
 - **Controlador de Energia (Adapters por Plataforma):**
   - Implementa **desligar**, **bloquear** e **reiniciar** com APIs nativas no Windows e automação do System Events no macOS. Suspensão não está implementada nesta etapa.
   - O agente envia `command_ack` somente depois que a chamada ao sistema retorna sucesso; em caso de falha de execução/permissão, envia `command_error`. O ACK confirma que o sistema aceitou o pedido, não que a transição já terminou.
@@ -98,6 +100,7 @@ O agente escuta em uma única porta configurada e separa o acesso conforme a int
 - **Acesso:** Disponível na interface de rede local para o app Flutter na mesma rede, exigindo autenticação via **token de pareamento**.
 - **Responsabilidades:**
   - Streaming contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia.
+  - Em falha de coleta, envia `metrics_error` para o cliente identificar as fontes problemáticas; a coleta recuperada é sinalizada em `metrics_update`.
   - Envio de comandos de mídia e energia com retorno de confirmação/erro. Para energia, o ACK significa aceitação pelo SO; `command_error` reporta rejeições e erros de permissão.
   - Verificação de disponibilidade do agente após um disparo de WoL.
 

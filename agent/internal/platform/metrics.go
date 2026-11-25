@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -15,37 +14,55 @@ func (n *Native) collectMetrics(ctx context.Context) (Metrics, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	now := time.Now()
+	result := Metrics{}
+	failures := make([]MetricSourceFailure, 0, 3)
+
 	cpuStats, err := cpu.TimesWithContext(ctx, false)
 	if err != nil {
-		return Metrics{}, fmt.Errorf("ler contadores de CPU: %w", err)
-	}
-	if len(cpuStats) == 0 {
-		return Metrics{}, fmt.Errorf("sistema não retornou contadores de CPU")
-	}
-	memory, err := mem.VirtualMemoryWithContext(ctx)
-	if err != nil {
-		return Metrics{}, fmt.Errorf("ler memória: %w", err)
-	}
-	networkIn, networkOut, err := activeNetworkCounters(ctx)
-	if err != nil {
-		return Metrics{}, fmt.Errorf("ler contadores de rede: %w", err)
+		failures = append(failures, MetricSourceFailure{Source: "cpu", Message: err.Error()})
+	} else if len(cpuStats) == 0 {
+		failures = append(failures, MetricSourceFailure{Source: "cpu", Message: "sistema não retornou contadores"})
+	} else {
+		if n.hasPreviousCPU {
+			elapsed := now.Sub(n.previousCPUAt).Seconds()
+			if elapsed > 0 {
+				result.CPUPercent = cpuUsagePercent(n.previousCPU, cpuStats[0])
+			}
+		}
+		n.previousCPUAt = now
+		n.previousCPU = cpuStats[0]
+		n.hasPreviousCPU = true
 	}
 
-	now := time.Now()
-	result := Metrics{MemoryUsed: memory.Used, MemoryTotal: memory.Total}
-	if n.hasPrevious {
-		elapsed := now.Sub(n.previousAt).Seconds()
-		if elapsed > 0 {
-			result.CPUPercent = cpuUsagePercent(n.previousCPU, cpuStats[0])
-			result.DownloadBytesPerSecond = byteRate(n.previousNetIn, networkIn, elapsed)
-			result.UploadBytesPerSecond = byteRate(n.previousNetOut, networkOut, elapsed)
-		}
+	memory, err := mem.VirtualMemoryWithContext(ctx)
+	if err != nil {
+		failures = append(failures, MetricSourceFailure{Source: "memory", Message: err.Error()})
+	} else {
+		result.MemoryUsed = memory.Used
+		result.MemoryTotal = memory.Total
 	}
-	n.previousAt = now
-	n.previousCPU = cpuStats[0]
-	n.previousNetIn = networkIn
-	n.previousNetOut = networkOut
-	n.hasPrevious = true
+
+	networkIn, networkOut, err := activeNetworkCounters(ctx)
+	if err != nil {
+		failures = append(failures, MetricSourceFailure{Source: "network", Message: err.Error()})
+	} else {
+		if n.hasPreviousNet {
+			elapsed := now.Sub(n.previousNetworkAt).Seconds()
+			if elapsed > 0 {
+				result.DownloadBytesPerSecond = byteRate(n.previousNetIn, networkIn, elapsed)
+				result.UploadBytesPerSecond = byteRate(n.previousNetOut, networkOut, elapsed)
+			}
+		}
+		n.previousNetworkAt = now
+		n.previousNetIn = networkIn
+		n.previousNetOut = networkOut
+		n.hasPreviousNet = true
+	}
+
+	if len(failures) > 0 {
+		return result, &MetricsError{Failures: failures}
+	}
 	return result, nil
 }
 
