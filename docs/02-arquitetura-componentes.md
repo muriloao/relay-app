@@ -4,8 +4,8 @@
 O sistema é dividido em três camadas principais que operam exclusivamente na rede local (**Wi-Fi/LAN**), sem dependência de serviços em nuvem ou descoberta automática:
 
 1. **App Mobile/Tablet (Flutter):** Cliente visual e de controle em orientação paisagem na mão do usuário.
-2. **Camada de Wake-on-LAN (Rede Local / UDP):** Canal independente para acordar o desktop quando o agente ainda está offline.
-3. **Agente Desktop (Go):** Daemon em segundo plano iniciado **junto com a sessão do usuário**, acompanhado de uma **CLI** para controle e pareamento via terminal, expondo na **mesma porta** uma **API LAN via WebSocket** e uma **API Admin via HTTP** isoladas por interface/origem.
+2. **Camada de Wake-on-LAN (Rede Local / UDP):** Canal independente para acordar a máquina quando o agente ainda está offline.
+3. **Agente Desktop (Go):** Daemon em segundo plano iniciado **junto com a sessão do usuário** no **Windows** e no **macOS**, acompanhado de uma **CLI** para controle e pareamento via terminal, expondo na **mesma porta** uma **API LAN via WebSocket** e uma **API Admin via HTTP** isoladas por interface/origem.
 
 ### Diagrama de Componentes
 
@@ -18,7 +18,7 @@ O sistema é dividido em três camadas principais que operam exclusivamente na r
     +-----------------+-----------------+
                       |
            +----------+----------+
-           | (1) PC Desligado    | (2) PC Online (LAN / WebSocket + Token)
+           | (1) Máquina Offline | (2) Máquina Online (LAN / WebSocket + Token)
            v                     v
     [ Pacote Mágico WoL ]   +-------------------------------------------+
            |                |     Agente Desktop (Go — Mesma Porta)     |
@@ -32,7 +32,7 @@ O sistema é dividido em três camadas principais que operam exclusivamente na r
                             |  +------------------v------------------+  |
                             |  |      Núcleo / Core do Agente        |  |
                             |  |  - Coletor de Métricas              |  |
-                            |  |  - Executor de Energia & Mídia      |  |
+                            |  |  - Adapters SO (Windows / macOS)    |  |
                             |  |  - Gestão de Tokens & Pareamento    |  |
                             |  +------------------+------------------+  |
                             |                     |                     |
@@ -63,26 +63,28 @@ Responsável pela experiência de painel de controle em paisagem, persistência 
 - **Módulo Wake-on-LAN (WoL):**
   - Monta e dispara o pacote mágico UDP diretamente para o endereço MAC salvo na mesma rede local, operando de forma totalmente independente do agente desktop.
 - **Cliente WebSocket LAN:**
-  - Abre e mantém a conexão WebSocket com a **API LAN** na porta configurada, autenticando com o token pareado.
-  - Recebe o fluxo contínuo de métricas (**CPU, RAM, rede**) e estado de mídia, envia comandos (**play/pause**, **faixa**, **volume**, **desligar**, **suspender**, **bloquear**, **reiniciar**) e gerencia a máquina de estados da tela (*Desligado/Offline*, *Inicializando*, *Online*, *Indisponível/Erro*).
+  - Abre e mantém a conexão WebSocket (`ws://`) com a **API LAN** na porta configurada, autenticando com o token pareado.
+  - Recebe o fluxo contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia, envia comandos (**play/pause**, **faixa**, **volume**, **desligar**, **suspender**, **bloquear**, **reiniciar**) e gerencia a máquina de estados da tela (*Desligada/Offline*, *Inicializando*, *Online*, *Indisponível/Erro*).
 - **Camada de Interface (Paisagem + Swipe + Drawer):**
   - Menu lateral com lista de máquinas e botão inferior para adicionar máquina via QR Code.
   - Navegação por swipe entre **Tela 1** (Energia, WoL e Métricas) e **Tela 2** (Controle de Mídia), com confirmação preventiva antes de desligar e reiniciar.
 
 ---
 
-## 2. Agente Desktop (Daemon em Go)
-É o serviço principal iniciado **automaticamente junto com a sessão do usuário** e mantido em execução em segundo plano. Rodar na sessão do usuário garante acesso às APIs de mídia/áudio da sessão ativa e à futura gestão de *hotkeys*.
+## 2. Agente Desktop (Daemon em Go — Windows e macOS)
+É o serviço principal iniciado **automaticamente junto com a sessão do usuário** e mantido em execução em segundo plano no **Windows** e no **macOS**. Rodar na sessão do usuário garante acesso às APIs de mídia/áudio da sessão ativa, bloqueio de tela e futura gestão de *hotkeys*.
 
 ### Subcomponentes Internos (Núcleo / Core)
 - **Coletor de Métricas:**
-  - Lê periodicamente uso de **CPU**, consumo de **RAM** e tráfego de **rede**, enviando atualizações pelo canal WebSocket apenas quando houver sessão ativa/conectada para economizar recursos.
-- **Controlador de Mídia:**
-  - Integra-se às APIs de sessão de mídia e áudio do sistema operacional para executar comandos (`play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`) e reportar o estado atual.
-- **Controlador de Energia:**
-  - Executa as ações solicitadas pelo app (**desligar**, **suspender**, **bloquear** e **reiniciar**), retornando confirmação do comando antes da transição de estado do sistema.
+  - Lê periodicamente uso de **CPU**, consumo de **RAM** e tráfego de **rede** (a cada 1 segundo quando há cliente conectado).
+- **Controlador de Mídia (Adapters por Plataforma):**
+  - Isola a integração com o SO (implementações específicas para **Windows** e **macOS**) para comandos (`play_pause`, `next`, `previous`, `set_volume`, `toggle_mute`) e leitura do estado atual.
+- **Controlador de Energia (Adapters por Plataforma):**
+  - Isola os comandos nativos de energia e bloqueio para **Windows** e **macOS** (**desligar**, **suspender**, **bloquear** e **reiniciar**), enviando `command_ack` antes da transição de estado.
+- **Autostart de Sessão (Adapters por Plataforma):**
+  - Registra e gerencia a inicialização automática na sessão do usuário no **Windows** e no **macOS**.
 - **Gerenciador de Identidade e Pareamento:**
-  - Valida tokens de acesso recebidos pela **API LAN** e gera/fornece os dados necessários para o fluxo de pareamento via QR Code exibido no terminal.
+  - Valida tokens de acesso recebidos pela **API LAN** e fornece/gerencia os dados para o fluxo de pareamento via QR Code exibido no terminal.
 
 ---
 
@@ -93,7 +95,7 @@ O agente escuta em uma única porta configurada e separa o acesso conforme a int
 - **Protocolo:** WebSocket (`ws://`) sobre a porta configurada do agente.
 - **Acesso:** Disponível na interface de rede local para o app Flutter na mesma rede, exigindo autenticação via **token de pareamento**.
 - **Responsabilidades:**
-  - Streaming contínuo de métricas (**CPU, RAM, rede**) e estado de mídia.
+  - Streaming contínuo de métricas (**CPU, RAM, rede** a cada 1 segundo com cliente conectado) e estado de mídia.
   - Envio de comandos de mídia e energia com retorno de confirmação/erro.
   - Verificação de disponibilidade do agente após um disparo de WoL.
 
@@ -110,12 +112,12 @@ O agente escuta em uma única porta configurada e separa o acesso conforme a int
 ---
 
 ## 4. CLI de Operação e Pareamento (Terminal)
-Utilitário de linha de comando que conversa com a **API Admin (HTTP em `localhost`)** para tarefas administrativas e pareamento:
+Utilitário de linha de comando (compatível com **Windows** e **macOS**) que conversa com a **API Admin (HTTP em `localhost`)** para tarefas administrativas e pareamento:
 - **Pareamento via QR Code:** Solicita os dados de conexão/pareamento à API Admin e desenha o **QR Code diretamente no terminal** contendo **IP**, **porta**, **MAC address**, **token de pareamento** e **nome da máquina**.
 - **Operação e diagnóstico:** Permite verificar o status do daemon iniciado com a sessão ou acionar comandos administrativos locais sem deixar um terminal preso como processo obrigatório após o pareamento.
 
 ---
 
 ## 5. Camada de Wake-on-LAN (WoL)
-- Fluxo direto entre o **app Flutter** e a interface de rede física do desktop na mesma rede local.
+- Fluxo direto entre o **app Flutter** e a interface de rede da máquina na mesma rede local.
 - O app dispara o pacote mágico UDP utilizando o **MAC address** salvo via QR Code e monitora a abertura/resposta do **WebSocket da API LAN** para transicionar o estado de *Inicializando* para *Online*.

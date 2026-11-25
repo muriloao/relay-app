@@ -1,7 +1,7 @@
 # 03 — Comunicação e Segurança
 
 ## Premissas Gerais de Rede e Transporte
-- **Escopo de rede:** Celular/tablet e desktop operam na **mesma rede local (Wi-Fi/LAN)**, sem descoberta automática (mDNS/scan) e sem acesso externo (internet/VPN) no MVP.
+- **Escopo de rede:** Celular/tablet e máquina desktop (**Windows** ou **macOS**) operam na **mesma rede local (Wi-Fi/LAN)**, sem descoberta automática (mDNS/scan) e sem acesso externo (internet/VPN) no MVP.
 - **Transporte LAN sem TLS no MVP:** A comunicação WebSocket na LAN utiliza **`ws://`** com autenticação via token, evitando a complexidade de certificados autoassinados no celular durante o MVP.
 - **Porta única com separação de interface/protocolo:**
   - **API LAN (`ws://`):** Exposta na interface de rede local para comunicação contínua com o app Flutter, exigindo token de pareamento válido.
@@ -46,7 +46,7 @@ Quando a máquina selecionada no menu lateral está **Offline**:
 1. **Disparo UDP:** O app monta o *Magic Packet* contendo o **MAC address** salvo no perfil da máquina e o envia em broadcast na mesma rede local (portas padrão UDP 7 ou 9).
 2. **Transição de estado:** A interface do app muda o status da máquina de *Offline* para *Inicializando*.
 3. **Tentativas de conexão:** O app inicia tentativas periódicas de conexão WebSocket (`ws://`) com o IP e porta cadastrados por uma janela limitada de tempo (timeout).
-4. **Confirmação:** Assim que o agente sobe junto com a sessão do usuário e aceita a conexão autenticada, o app transita para *Online* e passa a receber métricas e estado de mídia. Caso o tempo expire sem resposta, exibe estado de *Indisponível / Timeout* (orientando verificar WoL na BIOS/placa ou atualização de IP).
+4. **Confirmação:** Assim que o agente sobe junto com a sessão do usuário e aceita a conexão autenticada, o app transita para *Online* e passa a receber métricas e estado de mídia. Caso o tempo expire sem resposta, exibe estado de *Indisponível / Timeout* (orientando verificar WoL/hardware ou atualização de IP; no macOS, considerando que o despertar confiável costuma exigir repouso/tomada e adaptador compatível).
 
 ---
 
