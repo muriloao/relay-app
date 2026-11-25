@@ -1,6 +1,12 @@
 package platform
 
-import "context"
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/shirou/gopsutil/v4/cpu"
+)
 
 type Metrics struct {
 	CPUPercent             float64 `json:"cpu_percent"`
@@ -16,13 +22,29 @@ type Provider interface {
 	ExecuteMedia(context.Context, string, *float64) error
 }
 
-type Native struct{}
+type Native struct {
+	mu             sync.Mutex
+	previousAt     time.Time
+	previousCPU    cpu.TimesStat
+	previousNetIn  uint64
+	previousNetOut uint64
+	hasPrevious    bool
+}
 
-func New() Provider { return Native{} }
+func New() Provider { return &Native{} }
 
-// Metrics collection and media control are independent follow-up integrations.
-func (Native) Metrics(context.Context) (Metrics, error)             { return Metrics{}, nil }
-func (Native) ExecuteMedia(context.Context, string, *float64) error { return ErrNotImplemented }
+func (n *Native) Metrics(ctx context.Context) (Metrics, error)       { return n.collectMetrics(ctx) }
+func (*Native) ExecuteMedia(context.Context, string, *float64) error { return ErrNotImplemented }
+
+func (n *Native) ResetMetrics() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.previousAt = time.Time{}
+	n.previousCPU = cpu.TimesStat{}
+	n.previousNetIn = 0
+	n.previousNetOut = 0
+	n.hasPrevious = false
+}
 
 var ErrNotImplemented = errNotImplemented{}
 

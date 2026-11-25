@@ -44,21 +44,22 @@ docs/                  visão geral e requisitos do produto
 
 - A API Admin e a API WebSocket compartilham a mesma porta; rotas `/admin/*` só respondem a clientes loopback.
 - `/ws` exige a mensagem inicial `{"type":"auth","token":"…"}` e transmite `auth_ok` ou `auth_error`.
-- Métricas são amostradas a cada segundo somente enquanto existir cliente autenticado.
+- Métricas de CPU, RAM e rede são coletadas com `gopsutil` a cada segundo somente enquanto existir cliente autenticado.
+- CPU e taxas de rede são calculadas por diferença entre contadores; a primeira amostra após conectar/reconectar inicializa a base e pode trazer CPU/rede em zero.
+- Rede agrega interfaces ativas que não sejam loopback. O suporte de contadores de rede do `gopsutil` no macOS é parcial e precisa de validação em execução; se os valores forem inconsistentes, será usado um coletor nativo para rede no macOS.
 - Bloquear, desligar e reiniciar usam integração nativa no Windows e automação do System Events no macOS.
 - No Windows, o processo deve estar na sessão interativa do usuário e a conta precisa ter o direito de desligar o sistema.
 - No macOS, o usuário pode precisar autorizar o controle do System Events e o acesso de Acessibilidade para o processo que executa o agente. Faça essa autorização durante um teste local antes de iniciar o agente sem terminal.
 - Wake-on-LAN é enviado pelo app, não pelo daemon. Ligar um Mac totalmente desligado não é garantido; o suporte depende do modelo e do estado de energia.
-- Coleta real de métricas e controle de mídia/áudio ainda não foram implementados.
+- Controle de mídia/áudio ainda não foi implementado.
 - `suspend` ainda não faz parte das ações implementadas; as ações remotas disponíveis são `shutdown`, `lock` e `restart`.
 - Inicialização automática no logon, instância única, firewall e serviço em segundo plano ainda precisam ser implementados.
 - O esquema de métricas usa `cpu_percent`, `memory_used_bytes`, `memory_total_bytes`, `download_bytes_per_second` e `upload_bytes_per_second`.
 
 ## Próximos passos sugeridos
 
-1. Validar bloqueio, desligamento e reinício no Windows e no macOS com o agente executado na sessão do usuário.
-2. Implementar coleta de CPU, RAM e rede no adaptador `platform`.
-3. Implementar mídia e áudio da sessão do usuário.
-4. Definir o contrato final de eventos `media_state` e validação inicial do app.
-5. Acrescentar instalação/autostart e prevenção de instância duplicada.
-6. Integrar firewall e empacotamento para distribuição.
+1. Validar valores de CPU, RAM e rede no Windows e no macOS com clientes conectados.
+2. Implementar mídia e áudio da sessão do usuário.
+3. Definir o contrato final de eventos `media_state` e validação inicial do app.
+4. Acrescentar instalação/autostart e prevenção de instância duplicada.
+5. Integrar firewall e empacotamento para distribuição.

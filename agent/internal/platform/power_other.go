@@ -7,6 +7,6 @@ import (
 	"fmt"
 )
 
-func (Native) ExecutePower(_ context.Context, action string) error {
+func (*Native) ExecutePower(_ context.Context, action string) error {
 	return fmt.Errorf("ação de energia não suportada neste sistema: %s", action)
 }

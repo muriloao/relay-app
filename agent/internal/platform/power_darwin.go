@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func (Native) ExecutePower(ctx context.Context, action string) error {
+func (*Native) ExecutePower(ctx context.Context, action string) error {
 	var script string
 	switch action {
 	case "lock":

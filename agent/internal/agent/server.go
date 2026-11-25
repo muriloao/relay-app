@@ -165,9 +165,16 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func (s *Server) broadcastMetrics(ctx context.Context) {
 	var ticker *time.Ticker
+	wasActive := false
 	for {
 		active := false
 		s.clients.Range(func(_, _ any) bool { active = true; return false })
+		if active && !wasActive {
+			if resetter, ok := s.platform.(interface{ ResetMetrics() }); ok {
+				resetter.ResetMetrics()
+			}
+		}
+		wasActive = active
 		if active && ticker == nil {
 			ticker = time.NewTicker(time.Second)
 		}

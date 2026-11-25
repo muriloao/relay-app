@@ -38,7 +38,7 @@ type tokenPrivileges struct {
 	Privileges     [1]luidAndAttributes
 }
 
-func (Native) ExecutePower(ctx context.Context, action string) error {
+func (*Native) ExecutePower(ctx context.Context, action string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
