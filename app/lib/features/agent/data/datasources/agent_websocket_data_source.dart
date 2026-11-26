@@ -9,6 +9,8 @@ import '../../domain/entities/agent_connection_snapshot.dart';
 import '../../domain/repositories/agent_gateway.dart';
 
 class AgentWebSocketDataSource implements AgentGateway {
+  AgentWebSocketDataSource({this.commandTimeout = const Duration(seconds: 10)});
+
   WebSocket? _socket;
   StreamSubscription<dynamic>? _subscription;
   Completer<void>? _authenticationCompleter;
@@ -18,7 +20,7 @@ class AgentWebSocketDataSource implements AgentGateway {
       StreamController<AgentConnectionSnapshot>.broadcast();
   final Map<String, Completer<AgentCommandResult>> _pendingCommands = {};
 
-  static const _commandTimeout = Duration(seconds: 10);
+  final Duration commandTimeout;
 
   @override
   AgentConnectionSnapshot get snapshot => _snapshot;
@@ -108,7 +110,7 @@ class AgentWebSocketDataSource implements AgentGateway {
     try {
       socket.add(jsonEncode(message));
       return await completer.future.timeout(
-        _commandTimeout,
+        commandTimeout,
         onTimeout: () => AgentCommandResult.rejected(
           requestId: command.id,
           failure: AgentCommandFailure.timeout,
