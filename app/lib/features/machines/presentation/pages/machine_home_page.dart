@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -42,6 +44,47 @@ class MachineHomePage extends StatelessWidget {
   void _showMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _requestPowerAction(BuildContext context, String action) async {
+    final command = AgentCommand.create(
+      type: AgentCommandType.power,
+      action: action,
+    );
+    if (command.requiresConfirmation) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.warning_amber_outlined),
+          title: Text(
+            action == 'shutdown'
+                ? 'Desligar computador?'
+                : 'Reiniciar computador?',
+          ),
+          content: Text(
+            action == 'shutdown'
+                ? 'O computador será desligado e ficará offline. Salve o que estiver fazendo antes de continuar.'
+                : 'O computador será reiniciado e ficará temporariamente offline. Salve o que estiver fazendo antes de continuar.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(action == 'shutdown' ? 'Desligar' : 'Reiniciar'),
+            ),
+          ],
+        ),
+      );
+      if (!context.mounted || confirmed != true) return;
+    }
+    if (!context.mounted) return;
+    await context.read<MachineCubit>().executeCommand(
+      command,
+      confirmed: command.requiresConfirmation,
+    );
   }
 
   @override
@@ -143,10 +186,9 @@ class MachineHomePage extends StatelessWidget {
           const SizedBox(height: 28),
           _EnergyControlsSection(
             connection: state.connection,
-            execution: state.commandExecutions['power:lock'],
-            onLock: () => context.read<MachineCubit>().executeCommand(
-              AgentCommand.create(type: AgentCommandType.power, action: 'lock'),
-            ),
+            executions: state.commandExecutions,
+            onPowerAction: (action) =>
+                unawaited(_requestPowerAction(context, action)),
           ),
         ],
         const SizedBox(height: 22),
@@ -163,39 +205,18 @@ class MachineHomePage extends StatelessWidget {
 class _EnergyControlsSection extends StatelessWidget {
   const _EnergyControlsSection({
     required this.connection,
-    required this.execution,
-    required this.onLock,
+    required this.executions,
+    required this.onPowerAction,
   });
 
   final AgentConnectionSnapshot connection;
-  final CommandExecutionState? execution;
-  final VoidCallback onLock;
+  final Map<String, CommandExecutionState> executions;
+  final ValueChanged<String> onPowerAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final online = connection.status == AgentConnectionStatus.online;
-    final supported = connection.supportsPowerAction('lock');
-    final sending = execution?.status == CommandExecutionStatus.sending;
-    final canLock = online && supported && !sending;
-
-    final statusText = switch (execution?.status) {
-      CommandExecutionStatus.sending => 'Enviando solicitação…',
-      CommandExecutionStatus.accepted =>
-        'O agente aceitou o pedido de bloqueio.',
-      CommandExecutionStatus.transitionUnconfirmed =>
-        'A conexão terminou durante a transição. Verifique o estado da máquina.',
-      CommandExecutionStatus.failed => execution?.message,
-      CommandExecutionStatus.awaitingConfirmation =>
-        'Este comando requer confirmação.',
-      null => null,
-    };
-
-    final availabilityText = !online
-        ? 'Conecte-se à máquina para bloquear a tela.'
-        : !supported
-        ? 'O agente conectado não oferece comandos de energia.'
-        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -227,72 +248,130 @@ class _EnergyControlsSection extends StatelessWidget {
             return Wrap(
               spacing: spacing,
               runSpacing: spacing,
-              children: [
-                _EnergyActionTile(
-                  width: tileWidth,
-                  height: compact ? 96 : 115,
-                  enabled: canLock,
-                  busy: sending,
-                  icon: Icons.lock_outline,
-                  label: sending ? 'Enviando…' : 'Bloquear',
-                  onPressed: onLock,
-                ),
-              ],
+              children: _powerActions
+                  .map((action) {
+                    final execution = executions['power:${action.id}'];
+                    final supported = connection.supportsPowerAction(action.id);
+                    final sending =
+                        execution?.status == CommandExecutionStatus.sending;
+                    return _EnergyActionItem(
+                      width: tileWidth,
+                      height: compact ? 96 : 115,
+                      action: action,
+                      online: online,
+                      supported: supported,
+                      enabled: online && supported,
+                      busy: sending,
+                      execution: execution,
+                      onPressed: () => onPowerAction(action.id),
+                    );
+                  })
+                  .toList(growable: false),
             );
           },
         ),
-        if (statusText != null || availabilityText != null) ...[
+        if (!online) ...[
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (sending)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2, right: 8),
-                  child: SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              else if (execution?.status == CommandExecutionStatus.accepted)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Icon(
-                    Icons.verified_outlined,
-                    size: 15,
-                    color: theme.colorScheme.primary,
-                  ),
-                )
-              else if (execution?.status == CommandExecutionStatus.failed)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Icon(
-                    Icons.error_outline,
-                    size: 15,
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-              Expanded(
-                child: Text(
-                  statusText ?? availabilityText!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: execution?.status == CommandExecutionStatus.failed
-                        ? theme.colorScheme.error
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ],
+          Text(
+            'Conecte-se à máquina para executar ações de energia.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ],
     );
   }
 }
+
+class _EnergyActionItem extends StatelessWidget {
+  const _EnergyActionItem({
+    required this.width,
+    required this.height,
+    required this.action,
+    required this.online,
+    required this.supported,
+    required this.enabled,
+    required this.busy,
+    required this.execution,
+    required this.onPressed,
+  });
+
+  final double width;
+  final double height;
+  final _PowerAction action;
+  final bool online;
+  final bool supported;
+  final bool enabled;
+  final bool busy;
+  final CommandExecutionState? execution;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = switch (execution?.status) {
+      CommandExecutionStatus.accepted => 'Aceito pelo agente.',
+      CommandExecutionStatus.transitionUnconfirmed =>
+        'Transição não confirmada. Verifique a máquina.',
+      CommandExecutionStatus.failed => execution?.message,
+      _ => null,
+    };
+    final statusColor = execution?.status == CommandExecutionStatus.failed
+        ? theme.colorScheme.error
+        : execution?.status == CommandExecutionStatus.transitionUnconfirmed
+        ? theme.colorScheme.secondary
+        : theme.colorScheme.onSurfaceVariant;
+
+    return SizedBox(
+      width: width,
+      child: Column(
+        children: [
+          _EnergyActionTile(
+            width: width,
+            height: height,
+            enabled: enabled,
+            busy: busy,
+            icon: action.icon,
+            label: busy ? 'Enviando…' : action.label,
+            onPressed: onPressed,
+          ),
+          if (status != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              status,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(color: statusColor),
+            ),
+          ] else if (online && !supported) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Indisponível neste agente',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PowerAction {
+  const _PowerAction(this.id, this.label, this.icon);
+
+  final String id;
+  final String label;
+  final IconData icon;
+}
+
+const _powerActions = [
+  _PowerAction('shutdown', 'Desligar', Icons.power_settings_new_outlined),
+  _PowerAction('lock', 'Bloquear', Icons.lock_outline),
+  _PowerAction('restart', 'Reiniciar', Icons.restart_alt),
+];
 
 class _EnergyActionTile extends StatelessWidget {
   const _EnergyActionTile({
