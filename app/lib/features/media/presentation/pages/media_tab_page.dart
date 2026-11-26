@@ -26,6 +26,7 @@ class MediaTabPage extends StatefulWidget {
 
 class _MediaTabPageState extends State<MediaTabPage> {
   double? _volumeDraft;
+  double? _positionDraft;
   String? _lastCommandAction;
 
   @override
@@ -33,7 +34,11 @@ class _MediaTabPageState extends State<MediaTabPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.machineId != widget.machineId) {
       _volumeDraft = null;
+      _positionDraft = null;
       _lastCommandAction = null;
+    } else if (oldWidget.mediaState?.title != widget.mediaState?.title ||
+        oldWidget.mediaState?.player != widget.mediaState?.player) {
+      _positionDraft = null;
     }
   }
 
@@ -59,7 +64,7 @@ class _MediaTabPageState extends State<MediaTabPage> {
         final coverSize = wide
             ? constraints.maxHeight.clamp(220.0, 330.0).toDouble()
             : constraints.maxWidth.clamp(180.0, 260.0).toDouble();
-        final cover = _AlbumArtPlaceholder(size: coverSize);
+        final cover = _AlbumArt(media: media, size: coverSize);
         final controls = _buildControls(
           context,
           media: media,
@@ -151,6 +156,10 @@ class _MediaTabPageState extends State<MediaTabPage> {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+        ],
+        if ((media?.durationMs ?? 0) > 0) ...[
+          const SizedBox(height: 18),
+          _buildProgress(media!, sessionAvailable),
         ],
         const SizedBox(height: 28),
         Row(
@@ -329,6 +338,55 @@ class _MediaTabPageState extends State<MediaTabPage> {
     };
   }
 
+  Widget _buildProgress(MediaState media, bool enabled) {
+    final theme = Theme.of(context);
+    final duration = media.durationMs.toDouble();
+    final position = (_positionDraft ?? media.positionMs.toDouble())
+        .clamp(0, duration)
+        .toDouble();
+    return Column(
+      children: [
+        Slider(
+          value: position,
+          min: 0,
+          max: duration,
+          onChanged: enabled
+              ? (value) => setState(() => _positionDraft = value)
+              : null,
+          onChangeEnd: enabled
+              ? (value) {
+                  setState(() => _positionDraft = null);
+                  _send('seek', value);
+                }
+              : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _formatTime(position.round()),
+                style: theme.textTheme.labelSmall,
+              ),
+              Text(
+                _formatTime(media.durationMs),
+                style: theme.textTheme.labelSmall,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatTime(int milliseconds) {
+    final seconds = milliseconds ~/ 1000;
+    final minutes = seconds ~/ 60;
+    final remainder = seconds % 60;
+    return '$minutes:${remainder.toString().padLeft(2, '0')}';
+  }
+
   bool _isSending(String action) =>
       widget.executions[action]?.status == MediaCommandUiStatus.sending;
 
@@ -357,36 +415,52 @@ class _MediaTabPageState extends State<MediaTabPage> {
   }
 }
 
-class _AlbumArtPlaceholder extends StatelessWidget {
-  const _AlbumArtPlaceholder({required this.size});
+class _AlbumArt extends StatelessWidget {
+  const _AlbumArt({required this.media, required this.size});
 
+  final MediaState? media;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final artwork = media?.artworkData;
     return SizedBox.square(
       dimension: size,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF263B34), Color(0xFF101714), Color(0xFF20242A)],
-          ),
-          border: Border.all(color: const Color(0xFF303638)),
-        ),
-        child: Center(
-          child: Icon(
-            Icons.graphic_eq_rounded,
-            size: size * .32,
-            color: theme.colorScheme.primary.withValues(alpha: .8),
-          ),
-        ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: artwork != null
+            ? Image.memory(
+                artwork,
+                key: ValueKey(media?.artworkId),
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                errorBuilder: (_, _, _) => _fallback(theme),
+              )
+            : _fallback(theme),
       ),
     );
   }
+
+  Widget _fallback(ThemeData theme) => DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF263B34), Color(0xFF101714), Color(0xFF20242A)],
+      ),
+      border: Border.all(color: const Color(0xFF303638)),
+    ),
+    child: SizedBox.expand(
+      child: Center(
+        child: Icon(
+          Icons.graphic_eq_rounded,
+          size: size * .32,
+          color: theme.colorScheme.primary.withValues(alpha: .8),
+        ),
+      ),
+    ),
+  );
 }
 
 class _CommandFeedback {

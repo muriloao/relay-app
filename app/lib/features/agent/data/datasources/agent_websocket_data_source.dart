@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -23,6 +24,7 @@ class AgentWebSocketDataSource implements AgentGateway {
   final StreamController<AgentConnectionSnapshot> _updates =
       StreamController<AgentConnectionSnapshot>.broadcast();
   final Map<String, _PendingCommand> _pendingCommands = {};
+  final Map<String, _CachedMediaArtwork> _mediaArtworkById = {};
 
   final Duration commandTimeout;
 
@@ -35,6 +37,7 @@ class AgentWebSocketDataSource implements AgentGateway {
   @override
   Future<void> connect(MachineProfile profile, String token) async {
     final generation = ++_generation;
+    _mediaArtworkById.clear();
     _resolvePendingOnDisconnect(
       'A conexão foi substituída por uma nova sessão.',
     );
@@ -240,6 +243,13 @@ class AgentWebSocketDataSource implements AgentGateway {
         );
         break;
       case 'media_state':
+        final media = AgentMediaStateModel.fromJson(
+          _mapPayload(message['payload']),
+          envelopeStatus: message['status'],
+        ).toEntity();
+        final artwork = media.artworkId == null
+            ? null
+            : _mediaArtworkById[media.artworkId];
         _publish(
           AgentConnectionSnapshot(
             status: _snapshot.status,
@@ -248,12 +258,49 @@ class AgentWebSocketDataSource implements AgentGateway {
             capabilities: _snapshot.capabilities,
             latestMetrics: _snapshot.latestMetrics,
             metricsFailure: _snapshot.metricsFailure,
-            latestMediaState: AgentMediaStateModel.fromJson(
-              _mapPayload(message['payload']),
-              envelopeStatus: message['status'],
-            ).toEntity(),
+            latestMediaState: media.copyWith(
+              artworkMimeType: artwork?.mimeType,
+              artworkData: artwork?.bytes,
+              clearArtwork: media.artworkId == null,
+            ),
           ),
         );
+        break;
+      case 'media_artwork':
+        try {
+          final id = message['id'];
+          final encoded = message['data'];
+          final mimeType = message['mime_type'];
+          if (id is! String || id.isEmpty || encoded is! String) break;
+          final bytes = base64Decode(encoded);
+          if (bytes.isEmpty || bytes.length > 2 * 1024 * 1024) break;
+          _mediaArtworkById[id] = _CachedMediaArtwork(
+            bytes: bytes,
+            mimeType: mimeType is String ? mimeType : null,
+          );
+          if (_mediaArtworkById.length > 4) {
+            _mediaArtworkById.remove(_mediaArtworkById.keys.first);
+          }
+          final current = _snapshot.latestMediaState;
+          if (current?.artworkId == id) {
+            _publish(
+              AgentConnectionSnapshot(
+                status: _snapshot.status,
+                statusMessage: _snapshot.statusMessage,
+                machineName: _snapshot.machineName,
+                capabilities: _snapshot.capabilities,
+                latestMetrics: _snapshot.latestMetrics,
+                metricsFailure: _snapshot.metricsFailure,
+                latestMediaState: current!.copyWith(
+                  artworkMimeType: mimeType is String ? mimeType : null,
+                  artworkData: bytes,
+                ),
+              ),
+            );
+          }
+        } on FormatException {
+          // Ignore malformed optional artwork while keeping telemetry flowing.
+        }
         break;
       case 'command_error':
         _resolveCommandError(message);
@@ -430,6 +477,12 @@ class AgentWebSocketDataSource implements AgentGateway {
     _socket = null;
     await _updates.close();
   }
+}
+
+class _CachedMediaArtwork {
+  const _CachedMediaArtwork({required this.bytes, this.mimeType});
+  final Uint8List bytes;
+  final String? mimeType;
 }
 
 const _transitionUnconfirmedMessage =

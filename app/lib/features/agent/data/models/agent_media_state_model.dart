@@ -9,6 +9,10 @@ class AgentMediaStateModel {
     this.artist,
     this.volume,
     this.muted,
+    this.positionMs = 0,
+    this.durationMs = 0,
+    this.artworkId,
+    this.artworkMimeType,
     this.error,
   });
 
@@ -19,6 +23,10 @@ class AgentMediaStateModel {
   final String? artist;
   final int? volume;
   final bool? muted;
+  final int positionMs;
+  final int durationMs;
+  final String? artworkId;
+  final String? artworkMimeType;
   final String? error;
 
   factory AgentMediaStateModel.fromJson(
@@ -52,6 +60,8 @@ class AgentMediaStateModel {
         ? rawVolume.round()
         : null;
     final rawMuted = payload['muted'];
+    final position = _nonNegativeInt(payload['position_ms']);
+    final duration = _nonNegativeInt(payload['duration_ms']);
 
     return AgentMediaStateModel(
       status: status,
@@ -61,6 +71,10 @@ class AgentMediaStateModel {
       artist: _optionalString(payload['artist']),
       volume: volume,
       muted: rawMuted is bool ? rawMuted : null,
+      positionMs: position,
+      durationMs: duration,
+      artworkId: _optionalString(payload['artwork_id']),
+      artworkMimeType: _optionalString(payload['artwork_mime_type']),
       error: _optionalString(payload['error']),
     );
   }
@@ -73,6 +87,10 @@ class AgentMediaStateModel {
     artist: artist,
     volume: volume,
     muted: muted,
+    positionMs: positionMs,
+    durationMs: durationMs,
+    artworkId: artworkId,
+    artworkMimeType: artworkMimeType,
     error: error,
   );
 
@@ -97,4 +115,7 @@ class AgentMediaStateModel {
     final normalized = value.trim();
     return normalized.isEmpty ? null : normalized;
   }
+
+  static int _nonNegativeInt(Object? value) =>
+      value is num && value.isFinite && value >= 0 ? value.round() : 0;
 }
