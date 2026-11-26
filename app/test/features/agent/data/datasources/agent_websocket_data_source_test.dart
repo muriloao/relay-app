@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:relay_app/features/agent/data/datasources/agent_websocket_data_source.dart';
 import 'package:relay_app/features/agent/domain/entities/agent_command.dart';
 import 'package:relay_app/features/agent/domain/entities/agent_command_result.dart';
+import 'package:relay_app/features/agent/domain/entities/agent_connection_snapshot.dart';
 import 'package:relay_app/features/machines/domain/entities/machine_profile.dart';
 
 void main() {
@@ -13,11 +14,13 @@ void main() {
   late AgentWebSocketDataSource dataSource;
   late Future<void> Function(WebSocket socket, Map<String, dynamic> command)
   handleCommand;
+  late Future<void> Function(WebSocket socket) handleAuthentication;
   late Completer<Map<String, dynamic>> receivedCommand;
 
   setUp(() async {
     receivedCommand = Completer<Map<String, dynamic>>();
     handleCommand = (_, _) async {};
+    handleAuthentication = (_) async {};
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
       final socket = await WebSocketTransformer.upgrade(request);
@@ -30,7 +33,10 @@ void main() {
       socket.listen((rawMessage) async {
         final message =
             jsonDecode(rawMessage as String) as Map<String, dynamic>;
-        if (message['type'] == 'auth') return;
+        if (message['type'] == 'auth') {
+          await handleAuthentication(socket);
+          return;
+        }
         if (!receivedCommand.isCompleted) receivedCommand.complete(message);
         await handleCommand(socket, message);
       });
@@ -117,4 +123,37 @@ void main() {
 
     expect(result.failure, AgentCommandFailure.transport);
   });
+
+  test(
+    'converte metrics_update recebido no WebSocket em amostra tipada',
+    () async {
+      handleAuthentication = (socket) async {
+        socket.add(
+          jsonEncode({
+            'type': 'metrics_update',
+            'status': 'ok',
+            'payload': {
+              'cpu_percent': 23.5,
+              'memory_used_bytes': 4300000000,
+              'memory_total_bytes': 8000000000,
+              'download_bytes_per_second': 12800000,
+              'upload_bytes_per_second': 1400000,
+            },
+          }),
+        );
+      };
+      final metricsUpdate = dataSource.updates.firstWhere(
+        (snapshot) => snapshot.latestMetrics != null,
+      );
+
+      await connect();
+      final snapshot = await metricsUpdate;
+
+      expect(snapshot.status, AgentConnectionStatus.online);
+      expect(snapshot.latestMetrics?.cpuPercent, 23.5);
+      expect(snapshot.latestMetrics?.memoryUsedBytes, 4300000000);
+      expect(snapshot.latestMetrics?.downloadBytesPerSecond, 12800000);
+      expect(snapshot.metricsFailure, isNull);
+    },
+  );
 }

@@ -7,6 +7,8 @@ import '../../../agent/domain/entities/agent_command_result.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../agent/domain/repositories/agent_gateway.dart';
 import '../../../agent/domain/usecases/execute_agent_command.dart';
+import '../../../metrics/domain/usecases/load_performance_history.dart';
+import '../../../metrics/domain/usecases/save_performance_sample.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
 import '../../domain/entities/machine_profile.dart';
 import '../../domain/usecases/load_machine_profiles.dart';
@@ -21,12 +23,16 @@ class MachineCubit extends Cubit<MachineState> {
     required SaveMachinePairing saveMachinePairing,
     required ReadMachineToken readMachineToken,
     required ExecuteAgentCommand executeAgentCommand,
+    required LoadPerformanceHistory loadPerformanceHistory,
+    required SavePerformanceSample savePerformanceSample,
     required AgentGateway agentGateway,
   }) : this._(
          loadMachineProfiles,
          saveMachinePairing,
          readMachineToken,
          executeAgentCommand,
+         loadPerformanceHistory,
+         savePerformanceSample,
          agentGateway,
        );
 
@@ -35,18 +41,25 @@ class MachineCubit extends Cubit<MachineState> {
     this._saveMachinePairing,
     this._readMachineToken,
     this._executeAgentCommand,
+    this._loadPerformanceHistory,
+    this._savePerformanceSample,
     this._agentGateway,
   ) : super(MachineState(connection: _agentGateway.snapshot)) {
-    _connectionSubscription = _agentGateway.updates.listen((connection) {
-      emit(state.copyWith(connection: connection));
-    });
+    _connectionSubscription = _agentGateway.updates.listen(
+      _handleConnectionUpdate,
+    );
   }
 
   final LoadMachineProfiles _loadMachineProfiles;
   final SaveMachinePairing _saveMachinePairing;
   final ReadMachineToken _readMachineToken;
   final ExecuteAgentCommand _executeAgentCommand;
+  final LoadPerformanceHistory _loadPerformanceHistory;
+  final SavePerformanceSample _savePerformanceSample;
   final AgentGateway _agentGateway;
+  final Map<String, DateTime> _lastRecordedAt = {};
+  Future<void> _historyWriteQueue = Future<void>.value();
+  String? _telemetryProfileId;
   late final StreamSubscription<AgentConnectionSnapshot>
   _connectionSubscription;
 
@@ -63,6 +76,9 @@ class MachineCubit extends Cubit<MachineState> {
           clearPageError: true,
         ),
       );
+      if (profiles.isNotEmpty) {
+        await _loadHistory(profiles.first.id);
+      }
       if (profiles.isNotEmpty) await _connect(profiles.first);
     } catch (error) {
       emit(
@@ -84,7 +100,17 @@ class MachineCubit extends Cubit<MachineState> {
     }
     if (profile == null || state.selectedMachineId == profile.id) return;
 
-    emit(state.copyWith(selectedMachineId: profile.id));
+    await _agentGateway.disconnect();
+    if (isClosed) return;
+    emit(
+      state.copyWith(
+        selectedMachineId: profile.id,
+        performanceHistory: const [],
+        isHistoryLoading: true,
+        clearHistoryError: true,
+      ),
+    );
+    await _loadHistory(profile.id);
     await _connect(profile);
   }
 
@@ -95,9 +121,12 @@ class MachineCubit extends Cubit<MachineState> {
         state.copyWith(
           profiles: [...state.profiles, profile],
           selectedMachineId: profile.id,
+          performanceHistory: const [],
+          isHistoryLoading: true,
           clearPageError: true,
         ),
       );
+      await _loadHistory(profile.id);
       await _connect(profile);
       return null;
     } catch (error) {
@@ -108,6 +137,67 @@ class MachineCubit extends Cubit<MachineState> {
   Future<void> reconnectSelected() async {
     final profile = state.selectedProfile;
     if (profile != null) await _connect(profile);
+  }
+
+  Future<void> _loadHistory(String machineId) async {
+    try {
+      final history = await _loadPerformanceHistory(machineId);
+      if (isClosed || state.selectedMachineId != machineId) return;
+      emit(
+        state.copyWith(
+          performanceHistory: history,
+          isHistoryLoading: false,
+          clearHistoryError: true,
+        ),
+      );
+      if (history.isNotEmpty) {
+        _lastRecordedAt[machineId] = history.last.capturedAt;
+      }
+    } catch (error) {
+      if (isClosed || state.selectedMachineId != machineId) return;
+      emit(
+        state.copyWith(
+          isHistoryLoading: false,
+          historyError: 'Não foi possível ler o histórico local: $error',
+        ),
+      );
+    }
+  }
+
+  void _handleConnectionUpdate(AgentConnectionSnapshot connection) {
+    if (isClosed) return;
+    emit(state.copyWith(connection: connection));
+
+    final sample = connection.latestMetrics;
+    final machineId = _telemetryProfileId;
+    if (sample == null || machineId == null) return;
+    if (_lastRecordedAt[machineId] == sample.capturedAt) return;
+    _lastRecordedAt[machineId] = sample.capturedAt;
+
+    if (state.selectedMachineId == machineId) {
+      final updatedHistory = [...state.performanceHistory, sample];
+      emit(
+        state.copyWith(
+          performanceHistory: updatedHistory.length > 60
+              ? updatedHistory.sublist(updatedHistory.length - 60)
+              : updatedHistory,
+          clearHistoryError: true,
+        ),
+      );
+    }
+
+    _historyWriteQueue = _historyWriteQueue
+        .then((_) => _savePerformanceSample(machineId, sample))
+        .catchError((Object error) {
+          if (!isClosed && state.selectedMachineId == machineId) {
+            emit(
+              state.copyWith(
+                historyError:
+                    'Não foi possível salvar o histórico local: $error',
+              ),
+            );
+          }
+        });
   }
 
   Future<void> executeCommand(
@@ -189,6 +279,7 @@ class MachineCubit extends Cubit<MachineState> {
     try {
       final token = await _readMachineToken(profile.id);
       if (isClosed || state.selectedMachineId != profile.id) return;
+      _telemetryProfileId = profile.id;
       await _agentGateway.connect(profile, token);
     } catch (error) {
       if (isClosed) return;
@@ -206,6 +297,7 @@ class MachineCubit extends Cubit<MachineState> {
   @override
   Future<void> close() async {
     await _connectionSubscription.cancel();
+    await _historyWriteQueue;
     return super.close();
   }
 }

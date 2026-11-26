@@ -14,15 +14,27 @@ import '../../features/machines/domain/usecases/load_machine_profiles.dart';
 import '../../features/machines/domain/usecases/read_machine_token.dart';
 import '../../features/machines/domain/usecases/save_machine_pairing.dart';
 import '../../features/machines/presentation/cubit/machine_cubit.dart';
+import '../../features/metrics/data/datasources/hive_performance_history_data_source.dart';
+import '../../features/metrics/data/repositories/performance_history_repository_impl.dart';
+import '../../features/metrics/domain/repositories/performance_history_repository.dart';
+import '../../features/metrics/domain/usecases/load_performance_history.dart';
+import '../../features/metrics/domain/usecases/save_performance_sample.dart';
 import '../../router/app_router.dart';
 import 'service_locator.dart';
 
 Future<void> configureDependencies() async {
   await Hive.initFlutter();
   final profilesBox = await Hive.openBox<String>('relay.machine_profiles');
+  final performanceHistoryBox = await Hive.openBox<String>(
+    'relay.performance_history',
+  );
 
   getIt
     ..registerSingleton<Box<String>>(profilesBox)
+    ..registerSingleton<Box<String>>(
+      performanceHistoryBox,
+      instanceName: 'performance_history',
+    )
     ..registerLazySingleton<SharedPreferencesAsync>(SharedPreferencesAsync.new)
     ..registerLazySingleton<FlutterSecureStorage>(
       () => const FlutterSecureStorage(),
@@ -61,6 +73,22 @@ Future<void> configureDependencies() async {
     ..registerLazySingleton<ReadMachineToken>(
       () => ReadMachineToken(getIt<MachineRepository>()),
     )
+    ..registerLazySingleton<HivePerformanceHistoryDataSource>(
+      () => HivePerformanceHistoryDataSource(
+        historyBox: getIt<Box<String>>(instanceName: 'performance_history'),
+      ),
+    )
+    ..registerLazySingleton<PerformanceHistoryRepository>(
+      () => PerformanceHistoryRepositoryImpl(
+        getIt<HivePerformanceHistoryDataSource>(),
+      ),
+    )
+    ..registerLazySingleton<LoadPerformanceHistory>(
+      () => LoadPerformanceHistory(getIt<PerformanceHistoryRepository>()),
+    )
+    ..registerLazySingleton<SavePerformanceSample>(
+      () => SavePerformanceSample(getIt<PerformanceHistoryRepository>()),
+    )
     ..registerLazySingleton<AgentGateway>(AgentWebSocketDataSource.new)
     ..registerLazySingleton<ExecuteAgentCommand>(
       () => ExecuteAgentCommand(getIt<AgentGateway>()),
@@ -71,6 +99,8 @@ Future<void> configureDependencies() async {
         saveMachinePairing: getIt<SaveMachinePairing>(),
         readMachineToken: getIt<ReadMachineToken>(),
         executeAgentCommand: getIt<ExecuteAgentCommand>(),
+        loadPerformanceHistory: getIt<LoadPerformanceHistory>(),
+        savePerformanceSample: getIt<SavePerformanceSample>(),
         agentGateway: getIt<AgentGateway>(),
       ),
     )

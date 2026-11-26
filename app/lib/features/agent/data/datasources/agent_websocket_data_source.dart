@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../machines/domain/entities/machine_profile.dart';
+import '../../../metrics/domain/entities/metrics_collection_failure.dart';
+import '../models/agent_metrics_model.dart';
 import '../../domain/entities/agent_command.dart';
 import '../../domain/entities/agent_command_result.dart';
 import '../../domain/entities/agent_connection_snapshot.dart';
@@ -192,18 +194,34 @@ class AgentWebSocketDataSource implements AgentGateway {
         _authenticationCompleter = null;
         break;
       case 'metrics_update':
-        _publish(
-          AgentConnectionSnapshot(
-            status: _snapshot.status,
-            statusMessage: _snapshot.statusMessage,
-            machineName: _snapshot.machineName,
-            capabilities: _snapshot.capabilities,
-            latestMetrics: _mapPayload(message['payload']),
-            latestMediaState: _snapshot.latestMediaState,
-          ),
-        );
+        final payload = _mapPayload(message['payload']);
+        if (payload == null) {
+          _publishMetricsFailure(
+            const FormatException(
+              'O agente enviou métricas em formato inválido.',
+            ),
+          );
+          break;
+        }
+        try {
+          final sample = AgentMetricsModel.fromJson(payload)
+              .toEntity(DateTime.now());
+          _publish(
+            AgentConnectionSnapshot(
+              status: _snapshot.status,
+              statusMessage: _snapshot.statusMessage,
+              machineName: _snapshot.machineName,
+              capabilities: _snapshot.capabilities,
+              latestMetrics: sample,
+              latestMediaState: _snapshot.latestMediaState,
+            ),
+          );
+        } on FormatException catch (error) {
+          _publishMetricsFailure(error);
+        }
         break;
       case 'metrics_error':
+        final payload = _mapPayload(message['payload']) ?? const {};
         _publish(
           AgentConnectionSnapshot(
             status: _snapshot.status,
@@ -211,7 +229,10 @@ class AgentWebSocketDataSource implements AgentGateway {
             machineName: _snapshot.machineName,
             capabilities: _snapshot.capabilities,
             latestMetrics: _snapshot.latestMetrics,
-            metricsFailure: _mapPayload(message['payload']),
+            metricsFailure: MetricsCollectionFailureModel.fromJson(
+              payload,
+              DateTime.now(),
+            ),
             latestMediaState: _snapshot.latestMediaState,
           ),
         );
@@ -342,6 +363,25 @@ class AgentWebSocketDataSource implements AgentGateway {
     if (payload is Map<String, dynamic>) return payload;
     if (payload is Map) return Map<String, dynamic>.from(payload);
     return null;
+  }
+
+  void _publishMetricsFailure(Object error) {
+    _publish(
+      AgentConnectionSnapshot(
+        status: _snapshot.status,
+        statusMessage: _snapshot.statusMessage,
+        machineName: _snapshot.machineName,
+        capabilities: _snapshot.capabilities,
+        latestMetrics: _snapshot.latestMetrics,
+        metricsFailure: MetricsCollectionFailure(
+          capturedAt: DateTime.now(),
+          failures: [
+            MetricSourceFailure(source: 'collector', message: error.toString()),
+          ],
+        ),
+        latestMediaState: _snapshot.latestMediaState,
+      ),
+    );
   }
 
   String _friendlyConnectionError(Object error) {

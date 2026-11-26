@@ -14,6 +14,10 @@ import 'package:relay_app/features/machines/domain/usecases/save_machine_pairing
 import 'package:relay_app/features/pairing/domain/entities/pairing_payload.dart';
 import 'package:relay_app/features/machines/presentation/cubit/command_execution_state.dart';
 import 'package:relay_app/features/machines/presentation/cubit/machine_cubit.dart';
+import 'package:relay_app/features/metrics/domain/entities/performance_sample.dart';
+import 'package:relay_app/features/metrics/domain/repositories/performance_history_repository.dart';
+import 'package:relay_app/features/metrics/domain/usecases/load_performance_history.dart';
+import 'package:relay_app/features/metrics/domain/usecases/save_performance_sample.dart';
 
 void main() {
   late _FakeAgentGateway gateway;
@@ -21,12 +25,14 @@ void main() {
 
   setUp(() {
     gateway = _FakeAgentGateway();
-    const repository = _EmptyMachineRepository();
+    final repository = _TestRepository();
     cubit = MachineCubit(
       loadMachineProfiles: LoadMachineProfiles(repository),
       saveMachinePairing: SaveMachinePairing(repository),
       readMachineToken: ReadMachineToken(repository),
       executeAgentCommand: ExecuteAgentCommand(gateway),
+      loadPerformanceHistory: LoadPerformanceHistory(repository),
+      savePerformanceSample: SavePerformanceSample(repository),
       agentGateway: gateway,
     );
   });
@@ -88,7 +94,51 @@ void main() {
       CommandExecutionStatus.accepted,
     );
   });
+
+  test('nova amostra entra no histórico local e atualiza o estado', () async {
+    final profile = _testProfile;
+    final repository = _TestRepository(profiles: [profile]);
+    final metricCubit = MachineCubit(
+      loadMachineProfiles: LoadMachineProfiles(repository),
+      saveMachinePairing: SaveMachinePairing(repository),
+      readMachineToken: ReadMachineToken(repository),
+      executeAgentCommand: ExecuteAgentCommand(gateway),
+      loadPerformanceHistory: LoadPerformanceHistory(repository),
+      savePerformanceSample: SavePerformanceSample(repository),
+      agentGateway: gateway,
+    );
+    addTearDown(metricCubit.close);
+    await metricCubit.loadProfiles();
+    final sample = PerformanceSample(
+      capturedAt: DateTime.utc(2026, 1, 1),
+      cpuPercent: 42.5,
+      memoryUsedBytes: 4,
+      memoryTotalBytes: 8,
+      downloadBytesPerSecond: 100,
+      uploadBytesPerSecond: 50,
+    );
+
+    gateway.publish(
+      AgentConnectionSnapshot(
+        status: AgentConnectionStatus.online,
+        capabilities: const ['power', 'media'],
+        latestMetrics: sample,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(metricCubit.state.performanceHistory, [sample]);
+    expect(repository.history[profile.id], [sample]);
+  });
 }
+
+const _testProfile = MachineProfile(
+  id: 'machine-1',
+  name: 'Test',
+  host: '127.0.0.1',
+  port: 8765,
+  mac: '00:11:22:33:44:55',
+);
 
 AgentCommand _lockCommand() => const AgentCommand(
   id: 'lock-id',
@@ -123,14 +173,20 @@ class _FakeAgentGateway implements AgentGateway {
   @override
   Future<void> disconnect() async {}
 
+  void publish(AgentConnectionSnapshot connection) => _updates.add(connection);
+
   Future<void> close() => _updates.close();
 }
 
-class _EmptyMachineRepository implements MachineRepository {
-  const _EmptyMachineRepository();
+class _TestRepository
+    implements MachineRepository, PerformanceHistoryRepository {
+  _TestRepository({this.profiles = const []});
+
+  final List<MachineProfile> profiles;
+  final Map<String, List<PerformanceSample>> history = {};
 
   @override
-  Future<List<MachineProfile>> loadProfiles() async => const [];
+  Future<List<MachineProfile>> loadProfiles() async => profiles;
 
   @override
   Future<String> readToken(String profileId) async => '';
@@ -138,4 +194,13 @@ class _EmptyMachineRepository implements MachineRepository {
   @override
   Future<MachineProfile> savePairing(PairingPayload pairing) =>
       throw UnimplementedError();
+
+  @override
+  Future<List<PerformanceSample>> load(String machineId) async =>
+      history[machineId] ?? const [];
+
+  @override
+  Future<void> append(String machineId, PerformanceSample sample) async {
+    history[machineId] = [...?history[machineId], sample];
+  }
 }

@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../agent/domain/entities/agent_command.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
+import '../../../metrics/presentation/widgets/performance_overview.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
 import '../cubit/command_execution_state.dart';
 import '../cubit/machine_cubit.dart';
@@ -132,8 +133,15 @@ class MachineHomePage extends StatelessWidget {
             connection: state.connection,
             onRetry: () => context.read<MachineCubit>().reconnectSelected(),
           ),
-          const SizedBox(height: 16),
-          _LockScreenCard(
+          const SizedBox(height: 28),
+          PerformanceOverview(
+            connection: state.connection,
+            history: state.performanceHistory,
+            isHistoryLoading: state.isHistoryLoading,
+            historyError: state.historyError,
+          ),
+          const SizedBox(height: 28),
+          _EnergyControlsSection(
             connection: state.connection,
             execution: state.commandExecutions['power:lock'],
             onLock: () => context.read<MachineCubit>().executeCommand(
@@ -152,8 +160,8 @@ class MachineHomePage extends StatelessWidget {
   }
 }
 
-class _LockScreenCard extends StatelessWidget {
-  const _LockScreenCard({
+class _EnergyControlsSection extends StatelessWidget {
+  const _EnergyControlsSection({
     required this.connection,
     required this.execution,
     required this.onLock,
@@ -187,58 +195,168 @@ class _LockScreenCard extends StatelessWidget {
         ? 'O agente conectado não oferece comandos de energia.'
         : null;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Icon(Icons.lock_outline, color: theme.colorScheme.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Bloqueio de tela',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                if (sending)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
+            Expanded(
+              child: Text(
+                'Controle de energia',
+                style: theme.textTheme.titleMedium,
+              ),
             ),
-            const SizedBox(height: 8),
             Text(
-              'Bloqueie a sessão da máquina selecionada. Não é necessária confirmação.',
-              style: theme.textTheme.bodyMedium?.copyWith(
+              'Ações no computador',
+              style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: canLock ? onLock : null,
-                icon: const Icon(Icons.lock),
-                label: Text(sending ? 'Enviando…' : 'Bloquear tela'),
-              ),
-            ),
-            if (statusText != null || availabilityText != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                statusText ?? availabilityText!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: execution?.status == CommandExecutionStatus.failed
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.onSurfaceVariant,
+          ],
+        ),
+        const SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 600;
+            final columns = compact ? 2 : 5;
+            final spacing = compact ? 10.0 : 14.0;
+            final tileWidth =
+                (constraints.maxWidth - spacing * (columns - 1)) / columns;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                _EnergyActionTile(
+                  width: tileWidth,
+                  height: compact ? 96 : 115,
+                  enabled: canLock,
+                  busy: sending,
+                  icon: Icons.lock_outline,
+                  label: sending ? 'Enviando…' : 'Bloquear',
+                  onPressed: onLock,
+                ),
+              ],
+            );
+          },
+        ),
+        if (statusText != null || availabilityText != null) ...[
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (sending)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 8),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              else if (execution?.status == CommandExecutionStatus.accepted)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    Icons.verified_outlined,
+                    size: 15,
+                    color: theme.colorScheme.primary,
+                  ),
+                )
+              else if (execution?.status == CommandExecutionStatus.failed)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    Icons.error_outline,
+                    size: 15,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              Expanded(
+                child: Text(
+                  statusText ?? availabilityText!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: execution?.status == CommandExecutionStatus.failed
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],
-          ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _EnergyActionTile extends StatelessWidget {
+  const _EnergyActionTile({
+    required this.width,
+    required this.height,
+    required this.enabled,
+    required this.busy,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final double width;
+  final double height;
+  final bool enabled;
+  final bool busy;
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const tileForeground = Color(0xFFE6E6E7);
+    const iconForeground = Color(0xFF858990);
+
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Material(
+        color: const Color(0xFF151515),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: Color(0xFF2D2D2F)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Opacity(
+          opacity: enabled ? 1 : .55,
+          child: InkWell(
+            onTap: enabled && !busy ? onPressed : null,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (busy)
+                  const SizedBox(
+                    width: 23,
+                    height: 23,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.6,
+                      color: iconForeground,
+                    ),
+                  )
+                else
+                  Icon(icon, size: 24, color: iconForeground),
+                const SizedBox(height: 14),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: tileForeground,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

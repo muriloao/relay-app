@@ -1,3 +1,6 @@
+import '../../../metrics/domain/entities/metrics_collection_failure.dart';
+import '../../../metrics/domain/entities/performance_sample.dart';
+
 enum AgentConnectionStatus {
   disconnected,
   connecting,
@@ -21,8 +24,8 @@ class AgentConnectionSnapshot {
   final String? statusMessage;
   final String? machineName;
   final List<String> capabilities;
-  final Map<String, dynamic>? latestMetrics;
-  final Map<String, dynamic>? metricsFailure;
+  final PerformanceSample? latestMetrics;
+  final MetricsCollectionFailure? metricsFailure;
   final Map<String, dynamic>? latestMediaState;
 
   static const initial = AgentConnectionSnapshot(

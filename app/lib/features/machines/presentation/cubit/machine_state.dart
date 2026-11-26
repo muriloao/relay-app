@@ -1,4 +1,5 @@
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
+import '../../../metrics/domain/entities/performance_sample.dart';
 import 'command_execution_state.dart';
 import '../../domain/entities/machine_profile.dart';
 
@@ -10,6 +11,9 @@ class MachineState {
     this.pageError,
     this.connection = AgentConnectionSnapshot.initial,
     this.commandExecutions = const {},
+    this.performanceHistory = const [],
+    this.isHistoryLoading = false,
+    this.historyError,
   });
 
   final List<MachineProfile> profiles;
@@ -18,6 +22,9 @@ class MachineState {
   final String? pageError;
   final AgentConnectionSnapshot connection;
   final Map<String, CommandExecutionState> commandExecutions;
+  final List<PerformanceSample> performanceHistory;
+  final bool isHistoryLoading;
+  final String? historyError;
 
   MachineProfile? get selectedProfile {
     for (final profile in profiles) {
@@ -35,6 +42,10 @@ class MachineState {
     bool clearPageError = false,
     AgentConnectionSnapshot? connection,
     Map<String, CommandExecutionState>? commandExecutions,
+    List<PerformanceSample>? performanceHistory,
+    bool? isHistoryLoading,
+    String? historyError,
+    bool clearHistoryError = false,
   }) => MachineState(
     profiles: profiles ?? this.profiles,
     selectedMachineId: clearSelectedMachine
@@ -44,5 +55,8 @@ class MachineState {
     pageError: clearPageError ? null : pageError ?? this.pageError,
     connection: connection ?? this.connection,
     commandExecutions: commandExecutions ?? this.commandExecutions,
+    performanceHistory: performanceHistory ?? this.performanceHistory,
+    isHistoryLoading: isHistoryLoading ?? this.isHistoryLoading,
+    historyError: clearHistoryError ? null : historyError ?? this.historyError,
   );
 }
