@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/agent/data/datasources/agent_websocket_data_source.dart';
+import '../../features/agent/domain/usecases/execute_agent_command.dart';
 import '../../features/agent/domain/repositories/agent_gateway.dart';
 import '../../features/machines/data/datasources/hive_machine_local_data_source.dart';
 import '../../features/machines/data/datasources/secure_token_local_data_source.dart';
@@ -61,11 +62,15 @@ Future<void> configureDependencies() async {
       () => ReadMachineToken(getIt<MachineRepository>()),
     )
     ..registerLazySingleton<AgentGateway>(AgentWebSocketDataSource.new)
+    ..registerLazySingleton<ExecuteAgentCommand>(
+      () => ExecuteAgentCommand(getIt<AgentGateway>()),
+    )
     ..registerFactory<MachineCubit>(
       () => MachineCubit(
         loadMachineProfiles: getIt<LoadMachineProfiles>(),
         saveMachinePairing: getIt<SaveMachinePairing>(),
         readMachineToken: getIt<ReadMachineToken>(),
+        executeAgentCommand: getIt<ExecuteAgentCommand>(),
         agentGateway: getIt<AgentGateway>(),
       ),
     )

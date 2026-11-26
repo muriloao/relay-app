@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../../machines/domain/entities/machine_profile.dart';
+import '../../domain/entities/agent_command.dart';
+import '../../domain/entities/agent_command_result.dart';
 import '../../domain/entities/agent_connection_snapshot.dart';
 import '../../domain/repositories/agent_gateway.dart';
 
@@ -14,6 +16,9 @@ class AgentWebSocketDataSource implements AgentGateway {
   AgentConnectionSnapshot _snapshot = AgentConnectionSnapshot.initial;
   final StreamController<AgentConnectionSnapshot> _updates =
       StreamController<AgentConnectionSnapshot>.broadcast();
+  final Map<String, Completer<AgentCommandResult>> _pendingCommands = {};
+
+  static const _commandTimeout = Duration(seconds: 10);
 
   @override
   AgentConnectionSnapshot get snapshot => _snapshot;
@@ -24,6 +29,10 @@ class AgentWebSocketDataSource implements AgentGateway {
   @override
   Future<void> connect(MachineProfile profile, String token) async {
     final generation = ++_generation;
+    _failPendingCommands(
+      AgentCommandFailure.transport,
+      'A conexão foi substituída por uma nova sessão.',
+    );
     await _closeSocket();
     if (generation != _generation) return;
 
@@ -78,8 +87,54 @@ class AgentWebSocketDataSource implements AgentGateway {
   }
 
   @override
+  Future<AgentCommandResult> sendCommand(AgentCommand command) async {
+    final socket = _socket;
+    if (socket == null || _snapshot.status != AgentConnectionStatus.online) {
+      return AgentCommandResult.rejected(
+        requestId: command.id,
+        failure: AgentCommandFailure.connectionRequired,
+      );
+    }
+
+    final completer = Completer<AgentCommandResult>();
+    _pendingCommands[command.id] = completer;
+    final message = <String, Object?>{
+      'type': '${command.type.name}_command',
+      'id': command.id,
+      'action': command.action,
+      if (command.value != null) 'value': command.value,
+    };
+
+    try {
+      socket.add(jsonEncode(message));
+      return await completer.future.timeout(
+        _commandTimeout,
+        onTimeout: () => AgentCommandResult.rejected(
+          requestId: command.id,
+          failure: AgentCommandFailure.timeout,
+          message: 'O agente não confirmou o comando dentro do prazo.',
+        ),
+      );
+    } catch (error) {
+      return AgentCommandResult.rejected(
+        requestId: command.id,
+        failure: AgentCommandFailure.transport,
+        message: _friendlyConnectionError(error),
+      );
+    } finally {
+      if (identical(_pendingCommands[command.id], completer)) {
+        _pendingCommands.remove(command.id);
+      }
+    }
+  }
+
+  @override
   Future<void> disconnect() async {
     _generation++;
+    _failPendingCommands(
+      AgentCommandFailure.transport,
+      'A conexão com o agente foi encerrada.',
+    );
     _authenticationCompleter = null;
     await _closeSocket();
     _publish(AgentConnectionSnapshot.initial);
@@ -173,23 +228,20 @@ class AgentWebSocketDataSource implements AgentGateway {
         );
         break;
       case 'command_error':
-        _publish(
-          AgentConnectionSnapshot(
-            status: _snapshot.status,
-            statusMessage: message['error'] as String?,
-            machineName: _snapshot.machineName,
-            capabilities: _snapshot.capabilities,
-            latestMetrics: _snapshot.latestMetrics,
-            metricsFailure: _snapshot.metricsFailure,
-            latestMediaState: _snapshot.latestMediaState,
-          ),
-        );
+        _resolveCommandError(message);
+        break;
+      case 'command_ack':
+        _resolveCommandAck(message);
         break;
     }
   }
 
   void _handleSocketError(int generation, Object error) {
     if (generation != _generation) return;
+    _failPendingCommands(
+      AgentCommandFailure.transport,
+      _friendlyConnectionError(error),
+    );
     final completer = _authenticationCompleter;
     if (completer != null && !completer.isCompleted) {
       completer.completeError(error);
@@ -204,6 +256,10 @@ class AgentWebSocketDataSource implements AgentGateway {
 
   void _handleSocketDone(int generation) {
     if (generation != _generation) return;
+    _failPendingCommands(
+      AgentCommandFailure.transport,
+      'A conexão com o agente foi encerrada antes da confirmação.',
+    );
     _socket = null;
     _subscription = null;
     final completer = _authenticationCompleter;
@@ -218,6 +274,49 @@ class AgentWebSocketDataSource implements AgentGateway {
         const AgentConnectionSnapshot(
           status: AgentConnectionStatus.disconnected,
           statusMessage: 'A conexão com o agente foi encerrada.',
+        ),
+      );
+    }
+  }
+
+  void _resolveCommandAck(Map<String, dynamic> message) {
+    final requestId = message['id'];
+    if (requestId is! String) return;
+    final completer = _pendingCommands.remove(requestId);
+    if (completer == null || completer.isCompleted) return;
+    completer.complete(AgentCommandResult.accepted(requestId: requestId));
+  }
+
+  void _resolveCommandError(Map<String, dynamic> message) {
+    final requestId = message['id'];
+    if (requestId is! String) {
+      _failPendingCommands(
+        AgentCommandFailure.agentRejected,
+        message['error'] as String? ?? 'O agente rejeitou o comando.',
+      );
+      return;
+    }
+    final completer = _pendingCommands.remove(requestId);
+    if (completer == null || completer.isCompleted) return;
+    completer.complete(
+      AgentCommandResult.rejected(
+        requestId: requestId,
+        failure: AgentCommandFailure.agentRejected,
+        message: message['error'] as String? ?? 'O agente rejeitou o comando.',
+      ),
+    );
+  }
+
+  void _failPendingCommands(AgentCommandFailure failure, String message) {
+    final pending = _pendingCommands.entries.toList(growable: false);
+    _pendingCommands.clear();
+    for (final entry in pending) {
+      if (entry.value.isCompleted) continue;
+      entry.value.complete(
+        AgentCommandResult.rejected(
+          requestId: entry.key,
+          failure: failure,
+          message: message,
         ),
       );
     }
@@ -253,6 +352,10 @@ class AgentWebSocketDataSource implements AgentGateway {
 
   Future<void> dispose() async {
     _generation++;
+    _failPendingCommands(
+      AgentCommandFailure.transport,
+      'O serviço de conexão foi encerrado.',
+    );
     _authenticationCompleter = null;
     await _subscription?.cancel();
     await _socket?.close();
