@@ -54,12 +54,67 @@ O sistema é dividido em três camadas principais que operam exclusivamente na r
 ---
 
 ## 1. App Mobile / Tablet (Flutter)
-Responsável pela experiência de painel de controle em paisagem, persistência local dos perfis de máquinas e comunicação direta via WebSocket na LAN.
+Responsável pela experiência de painel de controle em paisagem, persistência local dos perfis de máquinas e comunicação direta via WebSocket na LAN. O app segue **Clean Architecture**, organizado por funcionalidade e com dependências apontando para o domínio.
+
+### Arquitetura Interna do App
+
+Cada funcionalidade relevante é organizada em camadas próprias, mantendo responsabilidades específicas:
+
+```text
+app/lib/
+├── app/                         # Raiz visual e tema
+├── core/
+│   └── di/                      # Composição e registro de dependências
+├── router/                      # Rotas declarativas do app
+└── features/
+    ├── agent/
+    │   ├── domain/              # Snapshot e contrato AgentGateway
+    │   └── data/                # Data source WebSocket do daemon Go
+    ├── machines/
+    │   ├── domain/              # Entidade, contrato e casos de uso
+    │   ├── data/                # Repositório, Hive e armazenamento seguro
+    │   └── presentation/        # Páginas, Cubit e estado
+    └── pairing/
+        ├── domain/              # Payload validado do QR
+        └── presentation/        # Scanner e revisão do pareamento
+```
+
+**Regras de dependência:**
+
+- `domain` contém entidades, contratos de repositório e casos de uso; não importa Flutter, plugins ou implementações de dados.
+- `data` implementa os contratos do domínio e contém modelos de serialização, data sources e integrações externas.
+- `presentation` contém páginas, estados e Cubits; chama casos de uso e observa contratos, sem acessar Hive, armazenamento seguro ou sockets diretamente.
+- A composição (`app/` e `core/di/`) instancia as implementações e as injeta por interfaces. Regras de negócio permanecem independentes de detalhes de armazenamento e comunicação.
+- Novas funcionalidades devem seguir `features/<funcionalidade>/{domain,data,presentation}/`, adicionando somente as camadas necessárias para aquele caso.
+
+### Bibliotecas e Responsabilidades
+
+| Contexto | Biblioteca / componente | Responsabilidade |
+|---|---|---|
+| Estado | `flutter_bloc` | Cubits/Blocs e estados de apresentação. |
+| Persistência | `hive` e `hive_flutter` | Perfis das máquinas no dispositivo. |
+| Credenciais | `flutter_secure_storage` | Token separado do perfil, no armazenamento seguro do sistema. |
+| HTTP | `dio` | Cliente compartilhado registrado para endpoints HTTP; ainda não há chamadas HTTP do app ao agente. |
+| Navegação | `go_router` | Rotas de máquinas, scanner e revisão do pareamento. |
+| Injeção | `get_it` | Composição de data sources, repositórios, casos de uso, gateway, Cubits e roteador. |
+| Tempo real | WebSocket (`dart:io`) | Protocolo atualmente utilizado para autenticar e receber eventos do agente. |
+
+**Toolchain do app:** Flutter **3.50.0+** e Dart **3.14.0+**. As restrições de pacotes ficam em `app/pubspec.yaml` e as versões efetivamente resolvidas são registradas em `app/pubspec.lock` (`flutter_bloc` 9.1.2, `hive` 2.2.3, `hive_flutter` 1.1.0, `dio` 5.11.1, `go_router` 18.1.4 e `get_it` 9.3.0).
+
+Perfis criados por versões anteriores em `shared_preferences` são migrados para Hive na primeira inicialização. Essa dependência fica apenas para leitura e migração dos dados antigos.
+
+### Estado Atual do App
+
+- Implementado: leitura e validação do QR, revisão do nome/IP, persistência do perfil, armazenamento seguro do token e tentativa de autenticação WebSocket.
+- O estado de conexão é publicado pelo gateway do agente e refletido na interface pelo `MachineCubit`.
+- O data source já decodifica mensagens de métricas e mídia, mas as respectivas telas e controles ainda são etapas futuras.
+- Dio está configurado para uso compartilhado, mas não é usado para o protocolo atual: o agente expõe WebSocket para a comunicação do app, e sua API Admin HTTP é local à máquina desktop.
 
 ### Subcomponentes Internos
 - **Gerenciador de Pareamento e Perfil:**
   - Lê o QR Code exibido no terminal do agente a partir do menu lateral (*Adicionar máquina*) e extrai os 5 campos definidos (**IP**, **porta**, **MAC address**, **token de pareamento** e **nome da máquina**).
-  - Armazena os perfis localmente e permite edição manual do IP caso ocorra renovação via DHCP.
+  - Permite revisar nome/IP, salva o perfil em Hive e guarda o token no armazenamento seguro do sistema. A conexão autenticada é tentada após a gravação local; falhas de conexão não descartam o perfil.
+  - A edição de perfil/IP após o pareamento continua prevista, ainda não está implementada.
 - **Módulo Wake-on-LAN (WoL):**
   - Monta e dispara o pacote mágico UDP diretamente para o endereço MAC salvo na mesma rede local, operando de forma totalmente independente do agente desktop.
 - **Cliente WebSocket LAN:**

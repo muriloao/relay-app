@@ -22,4 +22,8 @@ O **Relay** permite controlar e acompanhar um computador na mesma rede local sem
 │   └── 04-permissoes-e-plataforma.md
 ├── agent/          # Agente desktop em Go + CLI (Windows & macOS)
 ├── app/            # Aplicativo mobile/tablet em Flutter
+├── ui/             # Protótipo Lovable (React, estado simulado)
 └── README.md
+```
+
+O app Flutter inicial está em `app/`, com pareamento por QR e autenticação no WebSocket do agente. Ele segue Clean Architecture por funcionalidade (`domain`, `data`, `presentation`); consulte [app/README.md](app/README.md) e [docs/02-arquitetura-componentes.md](docs/02-arquitetura-componentes.md). A pasta `ui/` é apenas a referência visual e não se conecta ao agente.

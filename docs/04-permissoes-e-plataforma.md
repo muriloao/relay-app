@@ -51,4 +51,4 @@
 ## 3. Permissões no App Mobile (Flutter)
 - **Rede local (LAN):** Permissão para enviar pacotes UDP de WoL e manter conexão WebSocket (`ws://`) com o IP e porta da máquina na mesma rede.
 - **Câmera:** Utilizada apenas durante a leitura do QR Code no menu lateral (*Adicionar máquina*).
-- **Armazenamento local:** Salva os perfis cadastrados (nome, IP, porta, MAC address e token de pareamento) e permite edição manual do IP caso mude.
+- **Armazenamento local:** Perfis (nome, IP, porta e MAC address) ficam em Hive. O token é salvo separadamente no armazenamento seguro do sistema operacional (Keychain/Keystore), não no banco Hive. O app migra perfis legados de `shared_preferences` na primeira inicialização. Edição manual do IP após o cadastro continua prevista.

@@ -20,7 +20,10 @@ O pareamento transfere todas as credenciais e parâmetros de rede de uma única 
    - **MAC address** da interface de rede (para Wake-on-LAN)
    - **Token de pareamento** (credencial de acesso à API LAN)
    - **Nome da máquina** (identificador amigável exibido na lista de máquinas)
-4. **Validação inicial e persistência:** O app abre a conexão `ws://` usando os dados lidos e autentica com o token; após confirmação do agente, salva o perfil localmente (permitindo editar apenas o IP manualmente no futuro caso o DHCP altere o endereço).
+4. **Revisão e persistência:** O app valida o payload, permite revisar o nome/IP, salva o perfil em Hive e grava o token no armazenamento seguro do dispositivo.
+5. **Autenticação:** Depois da gravação local, o app abre a conexão `ws://` e envia o token. O estado muda para autenticado somente ao receber `auth_ok`; falhas de conexão mantêm o perfil salvo para nova tentativa.
+
+O app não persiste o token junto ao perfil. Dados legados de perfil anteriormente armazenados em `shared_preferences` são migrados para Hive; a chave do token permanece no armazenamento seguro, pois o identificador do perfil é preservado.
 
 ---
 
