@@ -5,6 +5,7 @@ import 'dart:io';
 import '../../../machines/domain/entities/machine_profile.dart';
 import '../../../metrics/domain/entities/metrics_collection_failure.dart';
 import '../models/agent_metrics_model.dart';
+import '../models/agent_media_state_model.dart';
 import '../../domain/entities/agent_command.dart';
 import '../../domain/entities/agent_command_result.dart';
 import '../../domain/entities/agent_connection_snapshot.dart';
@@ -251,7 +252,10 @@ class AgentWebSocketDataSource implements AgentGateway {
             capabilities: _snapshot.capabilities,
             latestMetrics: _snapshot.latestMetrics,
             metricsFailure: _snapshot.metricsFailure,
-            latestMediaState: _mapPayload(message['payload']),
+            latestMediaState: AgentMediaStateModel.fromJson(
+              _mapPayload(message['payload']),
+              envelopeStatus: message['status'],
+            ).toEntity(),
           ),
         );
         break;

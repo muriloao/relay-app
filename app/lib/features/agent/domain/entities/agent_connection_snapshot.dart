@@ -1,5 +1,6 @@
 import '../../../metrics/domain/entities/metrics_collection_failure.dart';
 import '../../../metrics/domain/entities/performance_sample.dart';
+import '../../../media/domain/entities/media_state.dart';
 
 enum AgentConnectionStatus {
   disconnected,
@@ -26,7 +27,7 @@ class AgentConnectionSnapshot {
   final List<String> capabilities;
   final PerformanceSample? latestMetrics;
   final MetricsCollectionFailure? metricsFailure;
-  final Map<String, dynamic>? latestMediaState;
+  final MediaState? latestMediaState;
 
   bool supportsPowerAction(String action) =>
       capabilities.contains('power.$action') ||
