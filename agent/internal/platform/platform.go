@@ -17,14 +17,19 @@ type Metrics struct {
 }
 
 type MediaState struct {
-	Status   string `json:"status"`
-	Player   string `json:"player,omitempty"`
-	Playback string `json:"playback"`
-	Title    string `json:"title,omitempty"`
-	Artist   string `json:"artist,omitempty"`
-	Volume   int    `json:"volume"`
-	Muted    bool   `json:"muted"`
-	Error    string `json:"error,omitempty"`
+	Status      string `json:"status"`
+	Player      string `json:"player,omitempty"`
+	Playback    string `json:"playback"`
+	Title       string `json:"title,omitempty"`
+	Artist      string `json:"artist,omitempty"`
+	Volume      int    `json:"volume"`
+	Muted       bool   `json:"muted"`
+	PositionMS  int64  `json:"position_ms,omitempty"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
+	ArtworkID   string `json:"artwork_id,omitempty"`
+	ArtworkMIME string `json:"artwork_mime_type,omitempty"`
+	Artwork     []byte `json:"-"`
+	Error       string `json:"error,omitempty"`
 }
 
 type Provider interface {
@@ -37,6 +42,10 @@ type Provider interface {
 
 type Native struct {
 	mu                sync.Mutex
+	mediaMu           sync.Mutex
+	mediaArtworkKey   string
+	mediaArtwork      []byte
+	mediaArtworkMIME  string
 	previousCPUAt     time.Time
 	previousCPU       cpu.TimesStat
 	previousNetworkAt time.Time

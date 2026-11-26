@@ -5,7 +5,10 @@ package platform
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +22,8 @@ set chosen to ""
 set chosenState to ""
 set titleText to ""
 set artistText to ""
+set positionText to "0"
+set durationText to "0"
 tell application "System Events" to set musicRunning to (name of processes) contains "Music"
 tell application "System Events" to set spotifyRunning to (name of processes) contains "Spotify"
 if musicRunning then
@@ -50,36 +55,92 @@ if chosen is not "" then
     try
       tell application "Music" to set titleText to name of current track as text
       tell application "Music" to set artistText to artist of current track as text
+      tell application "Music" to set positionText to player position as text
+      tell application "Music" to set durationText to (duration of current track / 1000) as text
     end try
   else
     try
       tell application "Spotify" to set titleText to name of current track as text
       tell application "Spotify" to set artistText to artist of current track as text
+      tell application "Spotify" to set positionText to player position as text
+      tell application "Spotify" to set durationText to (duration of current track / 1000) as text
     end try
   end if
 end if
 set volumeInfo to get volume settings
 set volumeLevel to output volume of volumeInfo as text
 set isMuted to output muted of volumeInfo as text
-return chosen & sep & chosenState & sep & titleText & sep & artistText & sep & volumeLevel & sep & isMuted`
+
+return chosen & sep & chosenState & sep & titleText & sep & artistText & sep & volumeLevel & sep & isMuted & sep & positionText & sep & durationText`
 	out, err := runAppleScript(ctx, script)
 	if err != nil {
 		return MediaState{}, err
 	}
 	parts := strings.Split(strings.TrimSpace(out), mediaSeparator)
-	if len(parts) != 6 {
+	if len(parts) != 8 {
 		return MediaState{}, fmt.Errorf("resposta inválida ao consultar estado de mídia")
 	}
 	volume, err := strconv.Atoi(parts[4])
 	if err != nil {
 		return MediaState{}, fmt.Errorf("volume retornado pelo macOS inválido: %w", err)
 	}
-	state := MediaState{Status: "ok", Player: parts[0], Playback: parts[1], Title: parts[2], Artist: parts[3], Volume: volume, Muted: parts[5] == "true"}
+	position, _ := strconv.ParseFloat(parts[6], 64)
+	duration, _ := strconv.ParseFloat(parts[7], 64)
+	state := MediaState{Status: "ok", Player: parts[0], Playback: parts[1], Title: parts[2], Artist: parts[3], Volume: volume, Muted: parts[5] == "true", PositionMS: int64(position * 1000), DurationMS: int64(duration * 1000)}
+	artworkKey := state.Player + "\x00" + state.Title + "\x00" + state.Artist
+	n.mediaMu.Lock()
+	cached := n.mediaArtworkKey == artworkKey
+	if cached {
+		state.Artwork = append([]byte(nil), n.mediaArtwork...)
+		state.ArtworkMIME = n.mediaArtworkMIME
+	}
+	n.mediaMu.Unlock()
+	if !cached && state.Player != "" {
+		if artwork, mimeType, readErr := readMacArtwork(ctx, state.Player); readErr == nil {
+			state.Artwork = artwork
+			state.ArtworkMIME = mimeType
+		}
+		n.mediaMu.Lock()
+		n.mediaArtworkKey = artworkKey
+		n.mediaArtwork = append(n.mediaArtwork[:0], state.Artwork...)
+		n.mediaArtworkMIME = state.ArtworkMIME
+		n.mediaMu.Unlock()
+	} else if !cached {
+		n.mediaMu.Lock()
+		n.mediaArtworkKey = artworkKey
+		n.mediaArtwork = nil
+		n.mediaArtworkMIME = ""
+		n.mediaMu.Unlock()
+	}
 	if state.Player == "" {
 		state.Status = "no_media"
 		state.Playback = "no_media"
 	}
 	return state, nil
+}
+
+func readMacArtwork(ctx context.Context, player string) ([]byte, string, error) {
+	file, err := os.CreateTemp("", "relay-media-cover-*.img")
+	if err != nil {
+		return nil, "", err
+	}
+	defer os.Remove(file.Name())
+	if err := file.Close(); err != nil {
+		return nil, "", err
+	}
+	path := strings.ReplaceAll(filepath.Clean(file.Name()), `"`, `\"`)
+	script := fmt.Sprintf(`tell application %q to write (data of artwork 1 of current track) to POSIX file "%s"`, player, path)
+	if err := runAppleScriptAction(ctx, script); err != nil {
+		return nil, "", err
+	}
+	data, err := os.ReadFile(file.Name())
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 || len(data) > 2*1024*1024 {
+		return nil, "", fmt.Errorf("capa de mídia vazia ou acima do limite")
+	}
+	return data, http.DetectContentType(data), nil
 }
 
 func (n *Native) ExecuteMedia(ctx context.Context, action string, value *float64) error {
@@ -98,6 +159,20 @@ else
 end if`)
 	}
 	if action != "play_pause" && action != "next" && action != "previous" {
+		if action == "seek" {
+			if value == nil || *value < 0 || *value > 86400000 {
+				return fmt.Errorf("seek exige posição entre 0 e 86400000 ms")
+			}
+			state, err := n.MediaState(ctx)
+			if err != nil {
+				return err
+			}
+			if state.Status == "no_media" {
+				return ErrNoMedia
+			}
+			seconds := *value / 1000
+			return runAppleScriptAction(ctx, fmt.Sprintf("tell application %q to set player position to %.3f", state.Player, seconds))
+		}
 		return fmt.Errorf("ação de mídia desconhecida: %s", action)
 	}
 	state, err := n.MediaState(ctx)

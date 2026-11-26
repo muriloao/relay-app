@@ -4,8 +4,10 @@ package platform
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math"
+	"net/http"
 	"runtime"
 	"syscall"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/saltosystems/winrt-go/windows/foundation"
 	"github.com/saltosystems/winrt-go/windows/media/control"
+	"github.com/saltosystems/winrt-go/windows/storage/streams"
 )
 
 var (
@@ -56,7 +59,7 @@ func (v *audioEndpointVolume) mediaVtbl() *audioEndpointVolumeVtbl {
 	return (*audioEndpointVolumeVtbl)(unsafe.Pointer(v.RawVTable))
 }
 
-func (*Native) MediaState(ctx context.Context) (MediaState, error) {
+func (n *Native) MediaState(ctx context.Context) (MediaState, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var state MediaState
@@ -123,6 +126,44 @@ func (*Native) MediaState(ctx context.Context) (MediaState, error) {
 			defer properties.Release()
 			state.Title, _ = properties.GetTitle()
 			state.Artist, _ = properties.GetArtist()
+			artworkKey := state.Player + "\x00" + state.Title + "\x00" + state.Artist
+			n.mediaMu.Lock()
+			cached := n.mediaArtworkKey == artworkKey
+			if cached {
+				state.Artwork = append([]byte(nil), n.mediaArtwork...)
+				state.ArtworkMIME = n.mediaArtworkMIME
+			}
+			n.mediaMu.Unlock()
+			if !cached {
+				var artwork []byte
+				var mimeType string
+				if thumbnail, thumbErr := properties.GetThumbnail(); thumbErr == nil && thumbnail != nil {
+					artwork, mimeType, _ = readWindowsThumbnail(ctx, thumbnail)
+					thumbnail.Release()
+				}
+				n.mediaMu.Lock()
+				n.mediaArtworkKey = artworkKey
+				n.mediaArtwork = append(n.mediaArtwork[:0], artwork...)
+				n.mediaArtworkMIME = mimeType
+				state.Artwork = append([]byte(nil), artwork...)
+				state.ArtworkMIME = mimeType
+				n.mediaMu.Unlock()
+			}
+			if len(state.Artwork) > 0 {
+				state.ArtworkID = fmt.Sprintf("%x", sha256.Sum256(state.Artwork))
+			}
+		}
+		if timeline, timelineErr := session.GetTimelineProperties(); timelineErr == nil && timeline != nil {
+			defer timeline.Release()
+			position, positionErr := timeline.GetPosition()
+			start, startErr := timeline.GetStartTime()
+			end, endErr := timeline.GetEndTime()
+			if positionErr == nil {
+				state.PositionMS = position.Duration / 10000
+			}
+			if startErr == nil && endErr == nil && end.Duration >= start.Duration {
+				state.DurationMS = (end.Duration - start.Duration) / 10000
+			}
 		}
 		return nil
 	})
@@ -150,8 +191,11 @@ func (*Native) ExecuteMedia(ctx context.Context, action string, value *float64) 
 			return setWindowsMuted(!muted)
 		})
 	}
-	if action != "play_pause" && action != "next" && action != "previous" {
+	if action != "play_pause" && action != "next" && action != "previous" && action != "seek" {
 		return fmt.Errorf("ação de mídia desconhecida: %s", action)
+	}
+	if action == "seek" && (value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 || *value > 86400000) {
+		return fmt.Errorf("seek exige posição entre 0 e 86400000 ms")
 	}
 	return withWindowsRuntime(func() error {
 		manager, err := requestMediaSessionManager(ctx)
@@ -175,6 +219,8 @@ func (*Native) ExecuteMedia(ctx context.Context, action string, value *float64) 
 			operation, err = session.TrySkipNextAsync()
 		case "previous":
 			operation, err = session.TrySkipPreviousAsync()
+		case "seek":
+			operation, err = session.TryChangePlaybackPositionAsync(int64(*value * 10000))
 		}
 		if err != nil {
 			return fmt.Errorf("enviar comando %s à sessão de mídia: %w", action, err)
@@ -225,6 +271,84 @@ func awaitWindowsOperation(ctx context.Context, operation *foundation.IAsyncOper
 		return nil, err
 	}
 	return operation.GetResults()
+}
+
+// readWindowsThumbnail consumes the WinRT random access stream into a bounded
+// buffer. Thumbnail streams are supplied by the active media session.
+func readWindowsThumbnail(ctx context.Context, reference *streams.IRandomAccessStreamReference) ([]byte, string, error) {
+	openOperation, err := reference.OpenReadAsync()
+	if err != nil {
+		return nil, "", err
+	}
+	result, err := awaitWindowsOperation(ctx, openOperation)
+	if err != nil {
+		return nil, "", err
+	}
+	stream := (*ole.IInspectable)(result)
+	defer stream.Release()
+	streamVtbl := (*randomAccessStreamVtbl)(unsafe.Pointer(stream.RawVTable))
+	var size uint64
+	hr, _, _ := syscall.SyscallN(streamVtbl.GetSize, uintptr(unsafe.Pointer(stream)), uintptr(unsafe.Pointer(&size)))
+	if hr != 0 {
+		return nil, "", ole.NewError(hr)
+	}
+	if size == 0 || size > 2*1024*1024 {
+		return nil, "", fmt.Errorf("thumbnail fora do limite de tamanho")
+	}
+
+	factoryObject, err := ole.RoGetActivationFactory("Windows.Storage.Streams.DataReader", ole.NewGUID("d7527847-57da-4e15-914c-06806699a098"))
+	if err != nil {
+		return nil, "", err
+	}
+	factory := (*dataReaderStatics)(unsafe.Pointer(factoryObject))
+	var reader *streams.DataReader
+	hr, _, _ = syscall.SyscallN(factory.VTable().CreateDataReader, uintptr(unsafe.Pointer(factory)), uintptr(unsafe.Pointer(stream)), uintptr(unsafe.Pointer(&reader)))
+	factory.Release()
+	if hr != 0 {
+		return nil, "", ole.NewError(hr)
+	}
+	defer reader.Release()
+	readerInterface := reader.MustQueryInterface(ole.NewGUID(streams.GUIDIDataReader))
+	defer readerInterface.Release()
+	dataReader := (*streams.IDataReader)(unsafe.Pointer(readerInterface))
+	var operation *foundation.IAsyncOperation
+	hr, _, _ = syscall.SyscallN(dataReader.VTable().LoadAsync, uintptr(unsafe.Pointer(dataReader)), uintptr(uint32(size)), uintptr(unsafe.Pointer(&operation)))
+	if hr != 0 {
+		return nil, "", ole.NewError(hr)
+	}
+	if err := waitWindowsOperation(ctx, operation); err != nil {
+		operation.Release()
+		return nil, "", err
+	}
+	var loaded uint32
+	hr, _, _ = syscall.SyscallN(operation.VTable().GetResults, uintptr(unsafe.Pointer(operation)), uintptr(unsafe.Pointer(&loaded)))
+	operation.Release()
+	if hr != 0 {
+		return nil, "", ole.NewError(hr)
+	}
+	if loaded == 0 || loaded > 2*1024*1024 {
+		return nil, "", fmt.Errorf("thumbnail vazio ou grande demais")
+	}
+	data, err := reader.ReadBytes(loaded)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, http.DetectContentType(data), nil
+}
+
+type randomAccessStreamVtbl struct {
+	ole.IInspectableVtbl
+	ReadAsync, WriteAsync, FlushAsync, Seek, GetPosition, SetSize, GetSize uintptr
+}
+
+type dataReaderStatics struct{ ole.IInspectable }
+type dataReaderStaticsVtbl struct {
+	ole.IInspectableVtbl
+	CreateDataReader uintptr
+}
+
+func (v *dataReaderStatics) VTable() *dataReaderStaticsVtbl {
+	return (*dataReaderStaticsVtbl)(unsafe.Pointer(v.RawVTable))
 }
 
 func awaitWindowsBooleanOperation(ctx context.Context, operation *foundation.IAsyncOperation) (bool, error) {

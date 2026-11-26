@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,13 +22,14 @@ import (
 )
 
 type Server struct {
-	cfg       config.Config
-	log       *slog.Logger
-	platform  platform.Provider
-	clients   sync.Map
-	mediaMu   sync.Mutex
-	lastMedia []byte
-	started   time.Time
+	cfg           config.Config
+	log           *slog.Logger
+	platform      platform.Provider
+	clients       sync.Map
+	mediaMu       sync.Mutex
+	lastMedia     []byte
+	lastArtworkID string
+	started       time.Time
 }
 
 func New(cfg config.Config, logger *slog.Logger) *Server {
@@ -239,11 +242,24 @@ func (s *Server) publishMedia(ctx context.Context, only *websocket.Conn, force b
 	if err != nil {
 		state = platform.MediaState{Status: "error", Playback: "unavailable", Error: err.Error()}
 	}
+	if len(state.Artwork) > 0 {
+		digest := sha256.Sum256(state.Artwork)
+		state.ArtworkID = fmt.Sprintf("%x", digest[:])
+		if state.ArtworkMIME == "" {
+			state.ArtworkMIME = "image/jpeg"
+		}
+	}
 	body, _ := json.Marshal(state)
 	s.mediaMu.Lock()
 	changed := !bytes.Equal(body, s.lastMedia)
 	if changed {
 		s.lastMedia = append(s.lastMedia[:0], body...)
+	}
+	artworkChanged := state.ArtworkID != "" && state.ArtworkID != s.lastArtworkID
+	if state.ArtworkID != "" {
+		s.lastArtworkID = state.ArtworkID
+	} else {
+		s.lastArtworkID = ""
 	}
 	s.mediaMu.Unlock()
 	if !force && !changed {
@@ -252,8 +268,14 @@ func (s *Server) publishMedia(ctx context.Context, only *websocket.Conn, force b
 	response := marshal(protocol.Response{Type: "media_state", Status: state.Status, Payload: json.RawMessage(body)})
 	sendTo := func(c *websocket.Conn) {
 		writeCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		defer cancel()
 		_ = c.Write(writeCtx, websocket.MessageText, response)
+		cancel()
+		if len(state.Artwork) > 0 && (force || artworkChanged) {
+			artwork := map[string]any{"type": "media_artwork", "id": state.ArtworkID, "mime_type": state.ArtworkMIME, "data": base64.StdEncoding.EncodeToString(state.Artwork)}
+			artworkCtx, artworkCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer artworkCancel()
+			_ = c.Write(artworkCtx, websocket.MessageText, marshal(artwork))
+		}
 	}
 	if only != nil {
 		sendTo(only)
