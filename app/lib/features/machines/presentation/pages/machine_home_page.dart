@@ -6,6 +6,7 @@ import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
 import '../cubit/machine_cubit.dart';
 import '../cubit/machine_state.dart';
+import '../widgets/machine_drawer.dart';
 
 class MachineHomePage extends StatelessWidget {
   const MachineHomePage({super.key});
@@ -45,7 +46,20 @@ class MachineHomePage extends StatelessWidget {
     builder: (context, state) {
       final theme = Theme.of(context);
       return Scaffold(
+        drawer: MachineDrawer(
+          state: state,
+          onMachineSelected: (profileId) =>
+              context.read<MachineCubit>().selectMachine(profileId),
+          onAddMachine: () => _addMachine(context),
+        ),
         appBar: AppBar(
+          leading: Builder(
+            builder: (context) => IconButton(
+              tooltip: 'Abrir menu de máquinas',
+              onPressed: Scaffold.of(context).openDrawer,
+              icon: const Icon(Icons.menu),
+            ),
+          ),
           title: const Text('Relay'),
           actions: [
             if (state.selectedProfile case final profile?)
@@ -102,27 +116,6 @@ class MachineHomePage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
       children: [
-        Text('Máquinas', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final profile in state.profiles)
-              ChoiceChip(
-                label: Text(profile.name),
-                selected: profile.id == state.selectedMachineId,
-                onSelected: (_) =>
-                    context.read<MachineCubit>().selectMachine(profile.id),
-              ),
-            ActionChip(
-              avatar: const Icon(Icons.add, size: 18),
-              label: const Text('Adicionar'),
-              onPressed: () => _addMachine(context),
-            ),
-          ],
-        ),
-        const SizedBox(height: 28),
         if (selected != null) ...[
           Text(selected.name, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 6),
