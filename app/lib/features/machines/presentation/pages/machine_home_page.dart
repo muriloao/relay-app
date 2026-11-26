@@ -8,11 +8,11 @@ import '../../../agent/domain/entities/agent_command.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../metrics/presentation/widgets/performance_overview.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
-import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
 import '../../domain/entities/machine_profile.dart';
 import '../cubit/command_execution_state.dart';
 import '../cubit/machine_cubit.dart';
 import '../cubit/machine_state.dart';
+import '../cubit/wake_on_lan_execution_state.dart';
 import '../widgets/machine_drawer.dart';
 
 class MachineHomePage extends StatelessWidget {

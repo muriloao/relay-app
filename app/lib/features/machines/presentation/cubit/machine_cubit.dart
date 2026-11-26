@@ -15,9 +15,9 @@ import '../../domain/usecases/load_machine_profiles.dart';
 import '../../domain/usecases/read_machine_token.dart';
 import '../../domain/usecases/save_machine_pairing.dart';
 import '../../../wake_on_lan/domain/usecases/wake_machine.dart';
-import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
 import 'command_execution_state.dart';
 import 'machine_state.dart';
+import 'wake_on_lan_execution_state.dart';
 
 class MachineCubit extends Cubit<MachineState> {
   MachineCubit({

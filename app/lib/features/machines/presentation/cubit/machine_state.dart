@@ -2,7 +2,7 @@ import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../metrics/domain/entities/performance_sample.dart';
 import 'command_execution_state.dart';
 import '../../domain/entities/machine_profile.dart';
-import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
+import 'wake_on_lan_execution_state.dart';
 
 class MachineState {
   const MachineState({
