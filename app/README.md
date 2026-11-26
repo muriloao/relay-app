@@ -23,7 +23,7 @@ flutter devices
 flutter run -d <device-id>
 ```
 
-O fluxo de pareamento lê e valida o QR do agente, permite revisar nome/IP, salva o perfil e tenta autenticar no WebSocket. Na tela inicial é possível selecionar uma máquina salva, ver o estado de conexão, consultar telemetria/histórico e executar as ações de energia disponíveis. O botão **Ligar** envia um pacote mágico Wake-on-LAN por UDP broadcast, diretamente do app para a rede local; ele não depende do WebSocket.
+O fluxo de pareamento lê e valida o QR do agente, permite revisar nome/IP, salva o perfil e tenta autenticar no WebSocket. Na tela da máquina, as abas **Visão geral** e **Mídia** podem ser trocadas por toque ou gesto horizontal. A visão geral exibe telemetria, histórico e ações de energia. A aba Mídia mostra o player e a faixa ativos, oferece play/pause, faixa anterior/próxima, volume master e mudo. O botão **Ligar** envia um pacote mágico Wake-on-LAN por UDP broadcast, diretamente do app para a rede local; ele não depende do WebSocket.
 
 ## Arquitetura do app
 
@@ -52,6 +52,7 @@ O perfil persistido guarda somente nome, IP, porta e MAC. O token é separado e 
 - `features/machines/presentation/`: lista de máquinas, pareamento e estado da tela via Cubit.
 - `features/agent/domain/`: contrato do gateway e snapshot de conexão.
 - `features/agent/data/`: WebSocket, autenticação e recepção de mensagens do agente.
+- `features/media/`: entidade tipada do estado de mídia e interface de reprodução/áudio.
 - `features/wake_on_lan/`: validação de MAC no caso de uso e envio do pacote mágico UDP na porta 9 via broadcast IPv4.
 - `features/pairing/domain/` e `presentation/`: validação do payload e telas de QR/revisão.
 
@@ -60,7 +61,7 @@ O token é escrito no armazenamento seguro antes do perfil. Se a gravação do p
 ## Próximas entregas
 
 1. Implementar reconexão automática do WebSocket após a máquina acordar.
-2. Completar a interface de mídia e os estados de disponibilidade por capacidade.
+2. Estender o protocolo do agente caso a interface passe a exibir capa, posição e duração da faixa, campos que ainda não são enviados.
 3. Validar Wake-on-LAN em redes e placas físicas diferentes; o envio do pacote não confirma que a máquina acordou.
 
 O protótipo em `ui/` continua como referência visual. A implementação Flutter mantém as integrações reais em suas camadas e exige confirmação antes de desligar ou reiniciar.
