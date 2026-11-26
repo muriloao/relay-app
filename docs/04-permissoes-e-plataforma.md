@@ -24,6 +24,7 @@
 
 ### C. Ações de Energia
 - **Ações implementadas:** `shutdown` (desligar), `lock` (bloquear) e `restart` (reiniciar), em Windows e macOS. `suspend` fica para uma etapa futura.
+- **Capacidades anunciadas:** além de `power`, o `auth_ok` publica `power.shutdown`, `power.lock` e `power.restart`. O app usa a capacidade específica por ação; clientes antigos ainda podem usar a capacidade geral para essas três ações. `power.suspend` só será anunciado quando a suspensão estiver implementada e validada na plataforma.
 - **Ligar / acordar:** Não é uma ação executada pelo daemon. O app envia WoL diretamente ao MAC quando o agente está offline. O alcance depende do hardware e do estado de energia; para Macs, não há garantia de ligar após desligamento completo.
 - **Execução por plataforma:**
   - **Windows:** Bloqueio via `LockWorkStation`; desligamento/reinício via API `ExitWindowsEx`, habilitando o privilégio `SeShutdownPrivilege` do processo quando disponível. O agente deve permanecer na sessão interativa; a conta precisa ter o direito do Windows de desligar o sistema.

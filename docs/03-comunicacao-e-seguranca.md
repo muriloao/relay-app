@@ -60,7 +60,7 @@ A comunicação sobre `ws://` é bidirecional e orientada a eventos estruturados
 
 ### 1. Autenticação e Sessão
 - **`auth` (App → Agente):** Envio do token de pareamento logo após abrir a conexão (ou via cabeçalho/parâmetro no handshake).
-- **`auth_ok` / `auth_error` (Agente → App):** Confirmação de sessão autorizada (retornando nome atual da máquina e capacidades) ou falha de autenticação.
+- **`auth_ok` / `auth_error` (Agente → App):** Confirmação de sessão autorizada (retornando nome atual da máquina e capacidades) ou falha de autenticação. Além das capacidades gerais (`metrics`, `media`, `power`), o agente anuncia ações de energia individualmente (`power.lock`, `power.shutdown`, `power.restart`) quando implementadas na plataforma. O app mantém compatibilidade com agentes antigos que anunciam apenas `power`, limitado às ações já conhecidas; `suspend` não é inferido dessa capacidade legada.
 
 ### 2. Telemetria Contínua (Agente → App)
 - **`metrics_update`:** Enviado a cada **1 segundo** apenas enquanto houver pelo menos um app conectado, contendo:
@@ -87,3 +87,4 @@ A comunicação sobre `ws://` é bidirecional e orientada a eventos estruturados
 ### 4. Confirmação e Erro (Agente → App)
 - **`command_ack`:** Confirma que o comando foi recebido e que o sistema operacional aceitou a solicitação. Não garante que a transição de energia já terminou; a conexão pode cair logo depois de desligar/reiniciar.
 - **`command_error`:** Informa que a ação não foi aceita ou não pôde ser iniciada (ex.: falta de permissão do SO, ausência de sessão de mídia ativa ou comando inválido). Em caso de erro, o agente não envia `command_ack` para aquela ação.
+- Se a conexão cair ou o ACK expirar durante `shutdown`/`restart`, o app apresenta o resultado como **transição não confirmada**, não como rejeição certa. O usuário deve verificar o estado da máquina; a desconexão, isoladamente, não prova que o sistema concluiu a ação.
