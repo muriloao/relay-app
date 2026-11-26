@@ -26,7 +26,13 @@ class ExecuteAgentCommand {
         failure: AgentCommandFailure.connectionRequired,
       );
     }
-    if (!connection.capabilities.contains(command.requiredCapability)) {
+    final hasActionCapability = connection.capabilities.contains(
+      command.actionCapability,
+    );
+    final supportsCommand = command.type == AgentCommandType.power
+        ? hasActionCapability || connection.supportsPowerAction(command.action)
+        : connection.capabilities.contains(command.requiredCapability);
+    if (!supportsCommand) {
       return AgentCommandResult.rejected(
         requestId: command.id,
         failure: AgentCommandFailure.capabilityUnavailable,

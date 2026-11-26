@@ -17,9 +17,13 @@ class AgentCommand {
 
   String get requiredCapability => type.name;
 
+  String get actionCapability => '${type.name}.$action';
+
   bool get requiresConfirmation =>
       type == AgentCommandType.power &&
       (action == 'shutdown' || action == 'restart');
+
+  bool get mayDisconnectAgent => requiresConfirmation;
 
   static AgentCommand create({
     required AgentCommandType type,

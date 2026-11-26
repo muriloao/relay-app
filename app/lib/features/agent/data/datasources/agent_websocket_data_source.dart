@@ -20,7 +20,7 @@ class AgentWebSocketDataSource implements AgentGateway {
   AgentConnectionSnapshot _snapshot = AgentConnectionSnapshot.initial;
   final StreamController<AgentConnectionSnapshot> _updates =
       StreamController<AgentConnectionSnapshot>.broadcast();
-  final Map<String, Completer<AgentCommandResult>> _pendingCommands = {};
+  final Map<String, _PendingCommand> _pendingCommands = {};
 
   final Duration commandTimeout;
 
@@ -33,8 +33,7 @@ class AgentWebSocketDataSource implements AgentGateway {
   @override
   Future<void> connect(MachineProfile profile, String token) async {
     final generation = ++_generation;
-    _failPendingCommands(
-      AgentCommandFailure.transport,
+    _resolvePendingOnDisconnect(
       'A conexão foi substituída por uma nova sessão.',
     );
     await _closeSocket();
@@ -101,7 +100,11 @@ class AgentWebSocketDataSource implements AgentGateway {
     }
 
     final completer = Completer<AgentCommandResult>();
-    _pendingCommands[command.id] = completer;
+    final pending = _PendingCommand(
+      completer: completer,
+      mayDisconnectAgent: command.mayDisconnectAgent,
+    );
+    _pendingCommands[command.id] = pending;
     final message = <String, Object?>{
       'type': '${command.type.name}_command',
       'id': command.id,
@@ -113,11 +116,16 @@ class AgentWebSocketDataSource implements AgentGateway {
       socket.add(jsonEncode(message));
       return await completer.future.timeout(
         commandTimeout,
-        onTimeout: () => AgentCommandResult.rejected(
-          requestId: command.id,
-          failure: AgentCommandFailure.timeout,
-          message: 'O agente não confirmou o comando dentro do prazo.',
-        ),
+        onTimeout: () => pending.mayDisconnectAgent
+            ? AgentCommandResult.transitionUnconfirmed(
+                requestId: command.id,
+                message: _transitionUnconfirmedMessage,
+              )
+            : AgentCommandResult.rejected(
+                requestId: command.id,
+                failure: AgentCommandFailure.timeout,
+                message: 'O agente não confirmou o comando dentro do prazo.',
+              ),
       );
     } catch (error) {
       return AgentCommandResult.rejected(
@@ -126,7 +134,7 @@ class AgentWebSocketDataSource implements AgentGateway {
         message: _friendlyConnectionError(error),
       );
     } finally {
-      if (identical(_pendingCommands[command.id], completer)) {
+      if (identical(_pendingCommands[command.id], pending)) {
         _pendingCommands.remove(command.id);
       }
     }
@@ -135,10 +143,7 @@ class AgentWebSocketDataSource implements AgentGateway {
   @override
   Future<void> disconnect() async {
     _generation++;
-    _failPendingCommands(
-      AgentCommandFailure.transport,
-      'A conexão com o agente foi encerrada.',
-    );
+    _resolvePendingOnDisconnect('A conexão com o agente foi encerrada.');
     _authenticationCompleter = null;
     await _closeSocket();
     _publish(AgentConnectionSnapshot.initial);
@@ -261,10 +266,7 @@ class AgentWebSocketDataSource implements AgentGateway {
 
   void _handleSocketError(int generation, Object error) {
     if (generation != _generation) return;
-    _failPendingCommands(
-      AgentCommandFailure.transport,
-      _friendlyConnectionError(error),
-    );
+    _resolvePendingOnDisconnect(_friendlyConnectionError(error));
     final completer = _authenticationCompleter;
     if (completer != null && !completer.isCompleted) {
       completer.completeError(error);
@@ -279,8 +281,7 @@ class AgentWebSocketDataSource implements AgentGateway {
 
   void _handleSocketDone(int generation) {
     if (generation != _generation) return;
-    _failPendingCommands(
-      AgentCommandFailure.transport,
+    _resolvePendingOnDisconnect(
       'A conexão com o agente foi encerrada antes da confirmação.',
     );
     _socket = null;
@@ -305,9 +306,11 @@ class AgentWebSocketDataSource implements AgentGateway {
   void _resolveCommandAck(Map<String, dynamic> message) {
     final requestId = message['id'];
     if (requestId is! String) return;
-    final completer = _pendingCommands.remove(requestId);
-    if (completer == null || completer.isCompleted) return;
-    completer.complete(AgentCommandResult.accepted(requestId: requestId));
+    final pending = _pendingCommands.remove(requestId);
+    if (pending == null || pending.completer.isCompleted) return;
+    pending.completer.complete(
+      AgentCommandResult.accepted(requestId: requestId),
+    );
   }
 
   void _resolveCommandError(Map<String, dynamic> message) {
@@ -319,9 +322,9 @@ class AgentWebSocketDataSource implements AgentGateway {
       );
       return;
     }
-    final completer = _pendingCommands.remove(requestId);
-    if (completer == null || completer.isCompleted) return;
-    completer.complete(
+    final pending = _pendingCommands.remove(requestId);
+    if (pending == null || pending.completer.isCompleted) return;
+    pending.completer.complete(
       AgentCommandResult.rejected(
         requestId: requestId,
         failure: AgentCommandFailure.agentRejected,
@@ -334,14 +337,39 @@ class AgentWebSocketDataSource implements AgentGateway {
     final pending = _pendingCommands.entries.toList(growable: false);
     _pendingCommands.clear();
     for (final entry in pending) {
-      if (entry.value.isCompleted) continue;
-      entry.value.complete(
+      if (entry.value.completer.isCompleted) continue;
+      entry.value.completer.complete(
         AgentCommandResult.rejected(
           requestId: entry.key,
           failure: failure,
           message: message,
         ),
       );
+    }
+  }
+
+  void _resolvePendingOnDisconnect(String message) {
+    final pending = _pendingCommands.entries.toList(growable: false);
+    _pendingCommands.clear();
+    for (final entry in pending) {
+      final request = entry.value;
+      if (request.completer.isCompleted) continue;
+      if (request.mayDisconnectAgent) {
+        request.completer.complete(
+          AgentCommandResult.transitionUnconfirmed(
+            requestId: entry.key,
+            message: _transitionUnconfirmedMessage,
+          ),
+        );
+      } else {
+        request.completer.complete(
+          AgentCommandResult.rejected(
+            requestId: entry.key,
+            failure: AgentCommandFailure.transport,
+            message: message,
+          ),
+        );
+      }
     }
   }
 
@@ -394,10 +422,7 @@ class AgentWebSocketDataSource implements AgentGateway {
 
   Future<void> dispose() async {
     _generation++;
-    _failPendingCommands(
-      AgentCommandFailure.transport,
-      'O serviço de conexão foi encerrado.',
-    );
+    _resolvePendingOnDisconnect('O serviço de conexão foi encerrado.');
     _authenticationCompleter = null;
     await _subscription?.cancel();
     await _socket?.close();
@@ -405,4 +430,17 @@ class AgentWebSocketDataSource implements AgentGateway {
     _socket = null;
     await _updates.close();
   }
+}
+
+const _transitionUnconfirmedMessage =
+    'A conexão foi encerrada durante o desligamento ou reinício. Verifique o estado da máquina; o app não consegue confirmar se a transição terminou.';
+
+class _PendingCommand {
+  const _PendingCommand({
+    required this.completer,
+    required this.mayDisconnectAgent,
+  });
+
+  final Completer<AgentCommandResult> completer;
+  final bool mayDisconnectAgent;
 }

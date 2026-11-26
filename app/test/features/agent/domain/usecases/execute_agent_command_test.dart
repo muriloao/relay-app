@@ -84,6 +84,41 @@ void main() {
     expect(gateway.sentCommands, isEmpty);
   });
 
+  test('aceita capacidade granular para ação de energia', () async {
+    gateway.currentSnapshot = const AgentConnectionSnapshot(
+      status: AgentConnectionStatus.online,
+      capabilities: ['power.shutdown'],
+    );
+
+    final result = await execute(
+      AgentCommand(
+        id: 'shutdown-id',
+        type: AgentCommandType.power,
+        action: 'shutdown',
+      ),
+      confirmed: true,
+    );
+
+    expect(result.accepted, isTrue);
+    expect(gateway.sentCommands.single.action, 'shutdown');
+  });
+
+  test(
+    'capacidade power legada não habilita ação ainda não suportada',
+    () async {
+      final result = await execute(
+        AgentCommand(
+          id: 'suspend-id',
+          type: AgentCommandType.power,
+          action: 'suspend',
+        ),
+      );
+
+      expect(result.failure, AgentCommandFailure.invalidCommand);
+      expect(gateway.sentCommands, isEmpty);
+    },
+  );
+
   test('volume fora do intervalo é rejeitado localmente', () async {
     final result = await execute(
       AgentCommand(

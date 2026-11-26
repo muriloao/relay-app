@@ -175,7 +175,7 @@ class _EnergyControlsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final online = connection.status == AgentConnectionStatus.online;
-    final supported = connection.capabilities.contains('power');
+    final supported = connection.supportsPowerAction('lock');
     final sending = execution?.status == CommandExecutionStatus.sending;
     final canLock = online && supported && !sending;
 
@@ -183,6 +183,8 @@ class _EnergyControlsSection extends StatelessWidget {
       CommandExecutionStatus.sending => 'Enviando solicitação…',
       CommandExecutionStatus.accepted =>
         'O agente aceitou o pedido de bloqueio.',
+      CommandExecutionStatus.transitionUnconfirmed =>
+        'A conexão terminou durante a transição. Verifique o estado da máquina.',
       CommandExecutionStatus.failed => execution?.message,
       CommandExecutionStatus.awaitingConfirmation =>
         'Este comando requer confirmação.',

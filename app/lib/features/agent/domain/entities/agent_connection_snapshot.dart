@@ -28,6 +28,11 @@ class AgentConnectionSnapshot {
   final MetricsCollectionFailure? metricsFailure;
   final Map<String, dynamic>? latestMediaState;
 
+  bool supportsPowerAction(String action) =>
+      capabilities.contains('power.$action') ||
+      (capabilities.contains('power') &&
+          const {'lock', 'shutdown', 'restart'}.contains(action));
+
   static const initial = AgentConnectionSnapshot(
     status: AgentConnectionStatus.disconnected,
   );

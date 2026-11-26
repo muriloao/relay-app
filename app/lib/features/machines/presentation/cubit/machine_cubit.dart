@@ -240,6 +240,8 @@ class MachineCubit extends Cubit<MachineState> {
         requestId: result.requestId,
         status: result.accepted
             ? CommandExecutionStatus.accepted
+            : result.transitionUnconfirmed
+            ? CommandExecutionStatus.transitionUnconfirmed
             : CommandExecutionStatus.failed,
         message: result.accepted ? null : _commandMessage(result),
       ),
@@ -256,24 +258,26 @@ class MachineCubit extends Cubit<MachineState> {
     emit(state.copyWith(commandExecutions: commandExecutions));
   }
 
-  String? _commandMessage(AgentCommandResult result) =>
-      switch (result.failure) {
-        AgentCommandFailure.confirmationRequired =>
-          'Este comando exige confirmação.',
-        AgentCommandFailure.connectionRequired =>
-          'Conecte-se à máquina para enviar comandos.',
-        AgentCommandFailure.capabilityUnavailable =>
-          'O agente não oferece suporte a este comando.',
-        AgentCommandFailure.invalidCommand =>
-          result.message ?? 'O comando ou seus parâmetros são inválidos.',
-        AgentCommandFailure.timeout =>
-          result.message ?? 'O agente não confirmou o comando dentro do prazo.',
-        AgentCommandFailure.transport =>
-          result.message ?? 'A conexão foi perdida antes da confirmação.',
-        AgentCommandFailure.agentRejected =>
-          result.message ?? 'O agente não conseguiu executar o comando.',
-        null => null,
-      };
+  String? _commandMessage(AgentCommandResult result) {
+    if (result.transitionUnconfirmed) return result.message;
+    return switch (result.failure) {
+      AgentCommandFailure.confirmationRequired =>
+        'Este comando exige confirmação.',
+      AgentCommandFailure.connectionRequired =>
+        'Conecte-se à máquina para enviar comandos.',
+      AgentCommandFailure.capabilityUnavailable =>
+        'O agente não oferece suporte a este comando.',
+      AgentCommandFailure.invalidCommand =>
+        result.message ?? 'O comando ou seus parâmetros são inválidos.',
+      AgentCommandFailure.timeout =>
+        result.message ?? 'O agente não confirmou o comando dentro do prazo.',
+      AgentCommandFailure.transport =>
+        result.message ?? 'A conexão foi perdida antes da confirmação.',
+      AgentCommandFailure.agentRejected =>
+        result.message ?? 'O agente não conseguiu executar o comando.',
+      null => null,
+    };
+  }
 
   Future<void> _connect(MachineProfile profile) async {
     try {

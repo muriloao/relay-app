@@ -124,6 +124,44 @@ void main() {
     expect(result.failure, AgentCommandFailure.transport);
   });
 
+  test('não trata desconexão durante reinício como falha certa', () async {
+    handleCommand = (socket, _) async {
+      await socket.close();
+    };
+    await connect();
+    const command = AgentCommand(
+      id: 'restart-request-id',
+      type: AgentCommandType.power,
+      action: 'restart',
+    );
+
+    final resultFuture = dataSource.sendCommand(command);
+    await receivedCommand.future;
+    final result = await resultFuture;
+
+    expect(result.transitionUnconfirmed, isTrue);
+    expect(result.failure, isNull);
+    expect(result.message, contains('Verifique o estado da máquina'));
+  });
+
+  test(
+    'timeout durante desligamento também indica transição incerta',
+    () async {
+      await connect();
+      const command = AgentCommand(
+        id: 'shutdown-request-id',
+        type: AgentCommandType.power,
+        action: 'shutdown',
+      );
+
+      final result = await dataSource.sendCommand(command);
+      await receivedCommand.future;
+
+      expect(result.transitionUnconfirmed, isTrue);
+      expect(result.failure, isNull);
+    },
+  );
+
   test(
     'converte metrics_update recebido no WebSocket em amostra tipada',
     () async {

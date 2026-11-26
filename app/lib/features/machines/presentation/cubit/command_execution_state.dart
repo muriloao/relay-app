@@ -1,4 +1,10 @@
-enum CommandExecutionStatus { awaitingConfirmation, sending, accepted, failed }
+enum CommandExecutionStatus {
+  awaitingConfirmation,
+  sending,
+  accepted,
+  transitionUnconfirmed,
+  failed,
+}
 
 class CommandExecutionState {
   const CommandExecutionState({

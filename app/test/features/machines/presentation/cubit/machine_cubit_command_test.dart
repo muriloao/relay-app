@@ -72,6 +72,24 @@ void main() {
     expect(cubit.state.connection.status, AgentConnectionStatus.online);
   });
 
+  test('transição sem ACK fica incerta, não marcada como falha', () async {
+    gateway.result = const AgentCommandResult.transitionUnconfirmed(
+      requestId: 'shutdown-id',
+      message: 'Verifique o estado da máquina.',
+    );
+    const command = AgentCommand(
+      id: 'shutdown-id',
+      type: AgentCommandType.power,
+      action: 'shutdown',
+    );
+
+    await cubit.executeCommand(command, confirmed: true);
+
+    final result = cubit.state.commandExecutions['power:shutdown'];
+    expect(result?.status, CommandExecutionStatus.transitionUnconfirmed);
+    expect(result?.message, 'Verifique o estado da máquina.');
+  });
+
   test('reinício aguarda confirmação e reusa o ID quando confirmado', () async {
     const command = AgentCommand(
       id: 'restart-id',
