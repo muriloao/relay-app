@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -7,6 +8,9 @@ import 'package:material_ui/material_ui.dart';
 import '../../../agent/domain/entities/agent_command.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../metrics/presentation/widgets/performance_overview.dart';
+import '../../../media/presentation/pages/media_tab_page.dart';
+import '../../../media/presentation/media_command_ui_state.dart';
+import '../../../metrics/domain/entities/performance_sample.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
 import '../../domain/entities/machine_profile.dart';
 import '../cubit/command_execution_state.dart';
@@ -127,7 +131,7 @@ class MachineHomePage extends StatelessWidget {
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 880),
+              constraints: const BoxConstraints(maxWidth: 1240),
               child: _buildBody(context, state),
             ),
           ),
@@ -161,46 +165,441 @@ class MachineHomePage extends StatelessWidget {
     }
 
     final selected = state.selectedProfile;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-      children: [
-        if (selected != null) ...[
-          Text(selected.name, style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 6),
-          Text(
-            '${selected.host}:${selected.port}  ·  ${selected.mac}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+    if (selected == null) {
+      return const Center(child: Text('Selecione uma máquina.'));
+    }
+    return _MachineWorkspace(
+      profile: selected,
+      connection: state.connection,
+      performanceHistory: state.performanceHistory,
+      isHistoryLoading: state.isHistoryLoading,
+      historyError: state.historyError,
+      commandExecutions: state.commandExecutions,
+      wakeOnLan: state.wakeOnLan,
+      onRetry: () => context.read<MachineCubit>().reconnectSelected(),
+      onWake: () => context.read<MachineCubit>().wakeSelectedMachine(),
+      onPowerAction: (action) =>
+          unawaited(_requestPowerAction(context, action)),
+      onMediaCommand: (action, value) {
+        final command = AgentCommand.create(
+          type: AgentCommandType.media,
+          action: action,
+          value: value,
+        );
+        unawaited(context.read<MachineCubit>().executeCommand(command));
+      },
+    );
+  }
+}
+
+class _MachineWorkspace extends StatefulWidget {
+  const _MachineWorkspace({
+    required this.profile,
+    required this.connection,
+    required this.performanceHistory,
+    required this.isHistoryLoading,
+    required this.historyError,
+    required this.commandExecutions,
+    required this.wakeOnLan,
+    required this.onRetry,
+    required this.onWake,
+    required this.onPowerAction,
+    required this.onMediaCommand,
+  });
+
+  final MachineProfile profile;
+  final AgentConnectionSnapshot connection;
+  final List<PerformanceSample> performanceHistory;
+  final bool isHistoryLoading;
+  final String? historyError;
+  final Map<String, CommandExecutionState> commandExecutions;
+  final WakeOnLanExecutionState wakeOnLan;
+  final VoidCallback onRetry;
+  final VoidCallback onWake;
+  final ValueChanged<String> onPowerAction;
+  final void Function(String action, double? value) onMediaCommand;
+
+  @override
+  State<_MachineWorkspace> createState() => _MachineWorkspaceState();
+}
+
+class _MachineWorkspaceState extends State<_MachineWorkspace> {
+  final PageController _pageController = PageController();
+  int _selectedPage = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _selectPage(int page) {
+    setState(() => _selectedPage = page);
+    _pageController.animateToPage(
+      page,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final online = widget.connection.status == AgentConnectionStatus.online;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.profile.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${widget.profile.host}:${widget.profile.port}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _MachineStatusBadge(connection: widget.connection),
+              if (!online) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Conectar novamente',
+                  onPressed: widget.onRetry,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 20),
+          _MachineTabs(selectedPage: _selectedPage, onSelected: _selectPage),
+          const SizedBox(height: 8),
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              physics: const PageScrollPhysics(),
+              onPageChanged: (page) => setState(() => _selectedPage = page),
+              children: [
+                _OverviewTab(
+                  connection: widget.connection,
+                  profile: widget.profile,
+                  performanceHistory: widget.performanceHistory,
+                  isHistoryLoading: widget.isHistoryLoading,
+                  historyError: widget.historyError,
+                  commandExecutions: widget.commandExecutions,
+                  wakeOnLan: widget.wakeOnLan,
+                  onRetry: widget.onRetry,
+                  onWake: widget.onWake,
+                  onPowerAction: widget.onPowerAction,
+                ),
+                MediaTabPage(
+                  machineId: widget.profile.id,
+                  connection: widget.connection,
+                  mediaState: widget.connection.latestMediaState,
+                  executions: _mediaExecutions(widget.commandExecutions),
+                  onCommand: widget.onMediaCommand,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 18),
-          _ConnectionCard(
-            connection: state.connection,
-            onRetry: () => context.read<MachineCubit>().reconnectSelected(),
-          ),
-          const SizedBox(height: 28),
-          PerformanceOverview(
-            connection: state.connection,
-            history: state.performanceHistory,
-            isHistoryLoading: state.isHistoryLoading,
-            historyError: state.historyError,
-          ),
-          const SizedBox(height: 28),
-          _EnergyControlsSection(
-            connection: state.connection,
-            profile: state.selectedProfile,
-            executions: state.commandExecutions,
-            wakeOnLan: state.wakeOnLan,
-            onWake: () => context.read<MachineCubit>().wakeSelectedMachine(),
-            onPowerAction: (action) =>
-                unawaited(_requestPowerAction(context, action)),
+          const SizedBox(height: 6),
+          _PageIndicator(selectedPage: _selectedPage, onSelected: _selectPage),
+        ],
+      ),
+    );
+  }
+}
+
+Map<String, MediaCommandUiState> _mediaExecutions(
+  Map<String, CommandExecutionState> executions,
+) {
+  const actions = [
+    'play_pause',
+    'previous',
+    'next',
+    'set_volume',
+    'toggle_mute',
+  ];
+  final mapped = <String, MediaCommandUiState>{};
+  for (final action in actions) {
+    final execution = executions['media:$action'];
+    if (execution == null) continue;
+    final status = switch (execution.status) {
+      CommandExecutionStatus.sending => MediaCommandUiStatus.sending,
+      CommandExecutionStatus.accepted => MediaCommandUiStatus.accepted,
+      CommandExecutionStatus.failed => MediaCommandUiStatus.failed,
+      _ => null,
+    };
+    if (status != null) {
+      mapped[action] = MediaCommandUiState(status, message: execution.message);
+    }
+  }
+  return mapped;
+}
+
+class _OverviewTab extends StatelessWidget {
+  const _OverviewTab({
+    required this.connection,
+    required this.profile,
+    required this.performanceHistory,
+    required this.isHistoryLoading,
+    required this.historyError,
+    required this.commandExecutions,
+    required this.wakeOnLan,
+    required this.onRetry,
+    required this.onWake,
+    required this.onPowerAction,
+  });
+
+  final AgentConnectionSnapshot connection;
+  final MachineProfile profile;
+  final List<PerformanceSample> performanceHistory;
+  final bool isHistoryLoading;
+  final String? historyError;
+  final Map<String, CommandExecutionState> commandExecutions;
+  final WakeOnLanExecutionState wakeOnLan;
+  final VoidCallback onRetry;
+  final VoidCallback onWake;
+  final ValueChanged<String> onPowerAction;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(0, 18, 0, 22),
+    children: [
+      if (connection.status != AgentConnectionStatus.online) ...[
+        _ConnectionCard(connection: connection, onRetry: onRetry),
+        const SizedBox(height: 22),
+      ],
+      PerformanceOverview(
+        connection: connection,
+        history: performanceHistory,
+        isHistoryLoading: isHistoryLoading,
+        historyError: historyError,
+      ),
+      const SizedBox(height: 28),
+      _EnergyControlsSection(
+        connection: connection,
+        profile: profile,
+        executions: commandExecutions,
+        wakeOnLan: wakeOnLan,
+        onWake: onWake,
+        onPowerAction: onPowerAction,
+      ),
+      const SizedBox(height: 20),
+      Text(
+        'Pareamento e comunicação acontecem na rede local.',
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
+    ],
+  );
+}
+
+class _MachineStatusBadge extends StatelessWidget {
+  const _MachineStatusBadge({required this.connection});
+
+  final AgentConnectionSnapshot connection;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final online = connection.status == AgentConnectionStatus.online;
+    final connecting =
+        connection.status == AgentConnectionStatus.connecting ||
+        connection.status == AgentConnectionStatus.authenticating;
+    final label = online
+        ? 'Online'
+        : connecting
+        ? 'Conectando'
+        : 'Offline';
+    final color = online
+        ? theme.colorScheme.primary
+        : connection.status == AgentConnectionStatus.error
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        border: Border.all(color: color.withValues(alpha: .25)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (connecting) ...[
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: color),
+            ),
+            const SizedBox(width: 7),
+          ] else ...[
+            Icon(Icons.circle, size: 7, color: color),
+            const SizedBox(width: 7),
+          ],
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(color: color),
           ),
         ],
-        const SizedBox(height: 22),
-        Text(
-          'Pareamento e comunicação acontecem na rede local.',
-          style: Theme.of(context).textTheme.bodySmall
-              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+class _MachineTabs extends StatelessWidget {
+  const _MachineTabs({required this.selectedPage, required this.onSelected});
+
+  final int selectedPage;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final theme = Theme.of(context);
+      const items = [
+        (Icons.tune_rounded, 'Visão geral', '01'),
+        (Icons.headphones_rounded, 'Mídia', '02'),
+      ];
+
+      return Row(
+        children: [
+          for (var index = 0; index < items.length; index++)
+            _MachineTab(
+              icon: items[index].$1,
+              label: items[index].$2,
+              number: items[index].$3,
+              selected: selectedPage == index,
+              onPressed: () => onSelected(index),
+            ),
+          if (constraints.maxWidth >= 520) ...[
+            const Spacer(),
+            Text(
+              'Deslize para trocar de aba',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+class _MachineTab extends StatelessWidget {
+  const _MachineTab({
+    required this.icon,
+    required this.label,
+    required this.number,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final String number;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = selected
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 22),
+      child: InkWell(
+        onTap: onPressed,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: selected
+                    ? theme.colorScheme.primary
+                    : Colors.transparent,
+                width: 2,
+              ),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 17, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(color: color),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                number,
+                style: theme.textTheme.labelSmall?.copyWith(color: color),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageIndicator extends StatelessWidget {
+  const _PageIndicator({required this.selectedPage, required this.onSelected});
+
+  final int selectedPage;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          tooltip: 'Visão geral',
+          onPressed: selectedPage == 0 ? null : () => onSelected(0),
+          icon: const Icon(Icons.chevron_left),
+          visualDensity: VisualDensity.compact,
+        ),
+        for (var index = 0; index < 2; index++)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: selectedPage == index ? 18 : 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: selectedPage == index
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant.withValues(alpha: .5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        IconButton(
+          tooltip: 'Mídia',
+          onPressed: selectedPage == 1 ? null : () => onSelected(1),
+          icon: const Icon(Icons.chevron_right),
+          visualDensity: VisualDensity.compact,
         ),
       ],
     );
@@ -264,9 +663,10 @@ class _EnergyControlsSection extends StatelessWidget {
                     final execution = executions['power:${action.id}'];
                     final supported = connection.supportsPowerAction(action.id);
                     final wake = action.id == 'wake';
-                    final wakeSupported = RegExp(
-                      r'^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$',
-                    ).hasMatch(profile?.mac ?? '');
+                    final wakeSupported =
+                        RegExp(r'^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$')
+                            .hasMatch(profile?.mac ?? '') &&
+                        !kIsWeb;
                     final sending = wake
                         ? wakeOnLan.status == WakeOnLanStatus.sending
                         : execution?.status == CommandExecutionStatus.sending;
@@ -378,7 +778,9 @@ class _EnergyActionItem extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               action.id == 'wake'
-                  ? 'Endereço MAC inválido no cadastro'
+                  ? kIsWeb
+                        ? 'Wake-on-LAN está disponível apenas no app instalado'
+                        : 'Endereço MAC inválido no cadastro'
                   : 'Indisponível neste agente',
               textAlign: TextAlign.center,
               style: theme.textTheme.labelSmall?.copyWith(

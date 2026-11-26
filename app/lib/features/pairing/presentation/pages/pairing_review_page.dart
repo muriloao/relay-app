@@ -1,8 +1,8 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../domain/entities/pairing_payload.dart';
+import '../../domain/validators/ip_address_validator.dart';
 
 class PairingReviewPage extends StatefulWidget {
   const PairingReviewPage({required this.payload, super.key});
@@ -34,12 +34,12 @@ class _PairingReviewPageState extends State<PairingReviewPage> {
 
   void _save() {
     final name = _nameController.text.trim();
-    final host = _hostController.text.trim();
+    final host = normalizeIpAddress(_hostController.text);
     if (name.isEmpty) {
       setState(() => _error = 'Informe um nome para a máquina.');
       return;
     }
-    if (InternetAddress.tryParse(host) == null) {
+    if (!isValidIpAddress(host)) {
       setState(() => _error = 'Informe um endereço IP válido.');
       return;
     }
@@ -71,7 +71,8 @@ class _PairingReviewPageState extends State<PairingReviewPage> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-                if (Platform.isAndroid) ...[
+                if (!kIsWeb &&
+                    defaultTargetPlatform == TargetPlatform.android) ...[
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,

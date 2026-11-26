@@ -34,6 +34,8 @@ class AgentConnectionSnapshot {
       (capabilities.contains('power') &&
           const {'lock', 'shutdown', 'restart'}.contains(action));
 
+  bool get supportsMedia => capabilities.contains('media');
+
   static const initial = AgentConnectionSnapshot(
     status: AgentConnectionStatus.disconnected,
   );

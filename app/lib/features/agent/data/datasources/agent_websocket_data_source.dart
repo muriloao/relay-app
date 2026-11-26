@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../../machines/domain/entities/machine_profile.dart';
 import '../../../metrics/domain/entities/metrics_collection_failure.dart';
@@ -14,7 +15,7 @@ import '../../domain/repositories/agent_gateway.dart';
 class AgentWebSocketDataSource implements AgentGateway {
   AgentWebSocketDataSource({this.commandTimeout = const Duration(seconds: 10)});
 
-  WebSocket? _socket;
+  WebSocketChannel? _socket;
   StreamSubscription<dynamic>? _subscription;
   Completer<void>? _authenticationCompleter;
   int _generation = 0;
@@ -45,22 +46,17 @@ class AgentWebSocketDataSource implements AgentGateway {
     );
 
     try {
-      final socket = await WebSocket.connect(
-        Uri(
-          scheme: 'ws',
-          host: profile.host,
-          port: profile.port,
-          path: '/ws',
-        ).toString(),
-      ).timeout(const Duration(seconds: 8));
+      final socket = WebSocketChannel.connect(
+        Uri(scheme: 'ws', host: profile.host, port: profile.port, path: '/ws'),
+      );
+      await socket.ready.timeout(const Duration(seconds: 8));
 
       if (generation != _generation) {
-        await socket.close();
+        await socket.sink.close();
         return;
       }
 
       _socket = socket;
-      socket.pingInterval = const Duration(seconds: 20);
       final authCompleter = Completer<void>();
       _authenticationCompleter = authCompleter;
       _publish(
@@ -68,14 +64,14 @@ class AgentWebSocketDataSource implements AgentGateway {
           status: AgentConnectionStatus.authenticating,
         ),
       );
-      _subscription = socket.listen(
+      _subscription = socket.stream.listen(
         (data) => _handleMessage(generation, data),
         onError: (Object error, StackTrace stackTrace) {
           _handleSocketError(generation, error);
         },
         onDone: () => _handleSocketDone(generation),
       );
-      socket.add(jsonEncode({'type': 'auth', 'token': token}));
+      socket.sink.add(jsonEncode({'type': 'auth', 'token': token}));
       await authCompleter.future.timeout(const Duration(seconds: 8));
     } catch (error) {
       if (generation != _generation) return;
@@ -114,7 +110,7 @@ class AgentWebSocketDataSource implements AgentGateway {
     };
 
     try {
-      socket.add(jsonEncode(message));
+      socket.sink.add(jsonEncode(message));
       return await completer.future.timeout(
         commandTimeout,
         onTimeout: () => pending.mayDisconnectAgent
@@ -383,7 +379,7 @@ class AgentWebSocketDataSource implements AgentGateway {
     await subscription?.cancel();
     final socket = _socket;
     _socket = null;
-    await socket?.close();
+    await socket?.sink.close();
   }
 
   void _publish(AgentConnectionSnapshot snapshot) {
@@ -429,7 +425,7 @@ class AgentWebSocketDataSource implements AgentGateway {
     _resolvePendingOnDisconnect('O serviço de conexão foi encerrado.');
     _authenticationCompleter = null;
     await _subscription?.cancel();
-    await _socket?.close();
+    await _socket?.sink.close();
     _subscription = null;
     _socket = null;
     await _updates.close();

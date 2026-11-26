@@ -1,6 +1,8 @@
-import 'dart:io';
-
 import '../../domain/repositories/wake_on_lan_repository.dart';
+import '../datasources/udp_wake_on_lan_sender_stub.dart'
+    if (dart.library.io) '../datasources/udp_wake_on_lan_sender_io.dart'
+    if (dart.library.html) '../datasources/udp_wake_on_lan_sender_web.dart'
+    as sender;
 
 class UdpWakeOnLanRepository implements WakeOnLanRepository {
   const UdpWakeOnLanRepository();
@@ -18,19 +20,6 @@ class UdpWakeOnLanRepository implements WakeOnLanRepository {
   }
 
   @override
-  Future<void> sendMagicPacket(String macAddress) async {
-    final packet = buildMagicPacket(macAddress);
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    try {
-      socket.broadcastEnabled = true;
-      final sent = socket.send(packet, InternetAddress('255.255.255.255'), 9);
-      if (sent != 102) {
-        throw const SocketException(
-          'Não foi possível enviar o pacote Wake-on-LAN.',
-        );
-      }
-    } finally {
-      socket.close();
-    }
-  }
+  Future<void> sendMagicPacket(String macAddress) =>
+      sender.sendMagicPacket(buildMagicPacket(macAddress));
 }

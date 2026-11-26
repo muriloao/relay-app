@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+
+import '../validators/ip_address_validator.dart';
 
 class PairingPayload {
   const PairingPayload({
@@ -41,13 +42,13 @@ class PairingPayload {
     }
 
     final cleanName = name.trim();
-    final cleanHost = host.trim();
+    final cleanHost = normalizeIpAddress(host);
     final cleanMac = mac.trim();
     final cleanToken = token.trim();
     if (cleanName.isEmpty) {
       throw const FormatException('O nome da máquina está vazio.');
     }
-    if (InternetAddress.tryParse(cleanHost) == null) {
+    if (!isValidIpAddress(cleanHost)) {
       throw const FormatException('O endereço IP do QR é inválido.');
     }
     if (port < 1 || port > 65535) {
