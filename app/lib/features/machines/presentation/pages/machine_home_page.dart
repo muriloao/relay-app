@@ -276,7 +276,9 @@ class _EnergyControlsSection extends StatelessWidget {
                       action: action,
                       online: online,
                       supported: wake ? wakeSupported : supported,
-                      enabled: wake ? wakeSupported : online && supported,
+                      enabled: wake
+                          ? !online && wakeSupported
+                          : online && supported,
                       busy: sending,
                       execution: execution,
                       wakeOnLan: wake ? wakeOnLan : null,
