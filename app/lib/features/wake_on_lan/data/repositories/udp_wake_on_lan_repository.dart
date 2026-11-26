@@ -12,7 +12,7 @@ class UdpWakeOnLanRepository implements WakeOnLanRepository {
         .split(':')
         .map((part) => int.parse(part, radix: 16))
         .toList(growable: false);
-    final packet = List<int>.filled(6, 0xff);
+    final packet = List<int>.filled(6, 0xff, growable: true);
     for (var repetition = 0; repetition < 16; repetition++) {
       packet.addAll(mac);
     }
