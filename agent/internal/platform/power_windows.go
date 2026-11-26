@@ -56,6 +56,10 @@ func (*Native) ExecutePower(ctx context.Context, action string) error {
 	}
 }
 
+func (*Native) Capabilities() []string {
+	return []string{"metrics", "media", "power", "power.lock", "power.shutdown", "power.restart"}
+}
+
 func windowsShutdown(action string) error {
 	var token syscall.Token
 	const tokenAdjustPrivileges = 0x0020

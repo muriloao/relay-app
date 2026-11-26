@@ -114,7 +114,7 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusPolicyViolation, "authentication failed")
 		return
 	}
-	if err := c.Write(ctx, websocket.MessageText, marshal(protocol.Response{Type: "auth_ok", OK: true, MachineName: s.cfg.Name, Capabilities: []string{"metrics", "media", "power"}})); err != nil {
+	if err := c.Write(ctx, websocket.MessageText, marshal(protocol.Response{Type: "auth_ok", OK: true, MachineName: s.cfg.Name, Capabilities: s.platform.Capabilities()})); err != nil {
 		return
 	}
 	s.clients.Store(c, struct{}{})

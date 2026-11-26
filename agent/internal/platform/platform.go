@@ -28,6 +28,7 @@ type MediaState struct {
 }
 
 type Provider interface {
+	Capabilities() []string
 	Metrics(context.Context) (Metrics, error)
 	MediaState(context.Context) (MediaState, error)
 	ExecutePower(context.Context, string) error

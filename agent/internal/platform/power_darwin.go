@@ -155,3 +155,7 @@ func (*Native) ExecutePower(ctx context.Context, action string) error {
 	}
 	return nil
 }
+
+func (*Native) Capabilities() []string {
+	return []string{"metrics", "media", "power", "power.lock", "power.shutdown", "power.restart"}
+}

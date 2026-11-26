@@ -16,3 +16,5 @@ func (*Native) ExecuteMedia(context.Context, string, *float64) error { return Er
 func (*Native) ExecutePower(_ context.Context, action string) error {
 	return fmt.Errorf("ação de energia não suportada neste sistema: %s", action)
 }
+
+func (*Native) Capabilities() []string { return []string{"metrics"} }
