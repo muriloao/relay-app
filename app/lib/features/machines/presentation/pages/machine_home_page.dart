@@ -2,8 +2,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../agent/domain/entities/agent_command.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
+import '../cubit/command_execution_state.dart';
 import '../cubit/machine_cubit.dart';
 import '../cubit/machine_state.dart';
 import '../widgets/machine_drawer.dart';
@@ -130,6 +132,14 @@ class MachineHomePage extends StatelessWidget {
             connection: state.connection,
             onRetry: () => context.read<MachineCubit>().reconnectSelected(),
           ),
+          const SizedBox(height: 16),
+          _LockScreenCard(
+            connection: state.connection,
+            execution: state.commandExecutions['power:lock'],
+            onLock: () => context.read<MachineCubit>().executeCommand(
+              AgentCommand.create(type: AgentCommandType.power, action: 'lock'),
+            ),
+          ),
         ],
         const SizedBox(height: 22),
         Text(
@@ -138,6 +148,99 @@ class MachineHomePage extends StatelessWidget {
               ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
       ],
+    );
+  }
+}
+
+class _LockScreenCard extends StatelessWidget {
+  const _LockScreenCard({
+    required this.connection,
+    required this.execution,
+    required this.onLock,
+  });
+
+  final AgentConnectionSnapshot connection;
+  final CommandExecutionState? execution;
+  final VoidCallback onLock;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final online = connection.status == AgentConnectionStatus.online;
+    final supported = connection.capabilities.contains('power');
+    final sending = execution?.status == CommandExecutionStatus.sending;
+    final canLock = online && supported && !sending;
+
+    final statusText = switch (execution?.status) {
+      CommandExecutionStatus.sending => 'Enviando solicitação…',
+      CommandExecutionStatus.accepted =>
+        'O agente aceitou o pedido de bloqueio.',
+      CommandExecutionStatus.failed => execution?.message,
+      CommandExecutionStatus.awaitingConfirmation =>
+        'Este comando requer confirmação.',
+      null => null,
+    };
+
+    final availabilityText = !online
+        ? 'Conecte-se à máquina para bloquear a tela.'
+        : !supported
+        ? 'O agente conectado não oferece comandos de energia.'
+        : null;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lock_outline, color: theme.colorScheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Bloqueio de tela',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (sending)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Bloqueie a sessão da máquina selecionada. Não é necessária confirmação.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: canLock ? onLock : null,
+                icon: const Icon(Icons.lock),
+                label: Text(sending ? 'Enviando…' : 'Bloquear tela'),
+              ),
+            ),
+            if (statusText != null || availabilityText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                statusText ?? availabilityText!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: execution?.status == CommandExecutionStatus.failed
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

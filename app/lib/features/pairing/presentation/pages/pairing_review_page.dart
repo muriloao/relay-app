@@ -71,6 +71,26 @@ class _PairingReviewPageState extends State<PairingReviewPage> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                if (Platform.isAndroid) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        _hostController.text = '10.0.2.2';
+                        setState(() => _error = null);
+                      },
+                      icon: const Icon(Icons.phone_android),
+                      label: const Text('Usar endereço do emulador Android'),
+                    ),
+                  ),
+                  Text(
+                    'No emulador Android padrão, 10.0.2.2 aponta para o Mac host.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextField(
                   controller: _hostController,

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -37,6 +38,13 @@ class _QrScannerPageState extends State<QrScannerPage> {
       Navigator.of(context).pop(value);
       return;
     }
+  }
+
+  Future<void> _enterManually() async {
+    final rawPayload = await context.push<String>('/pairing/manual');
+    if (!mounted || rawPayload == null || _didReturn) return;
+    _didReturn = true;
+    Navigator.of(context).pop(rawPayload);
   }
 
   @override
@@ -81,6 +89,12 @@ class _QrScannerPageState extends State<QrScannerPage> {
                         ),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _enterManually,
+                    icon: const Icon(Icons.content_paste),
+                    label: const Text('Inserir código manualmente'),
                   ),
                 ],
               ),
