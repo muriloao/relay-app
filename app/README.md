@@ -23,7 +23,7 @@ flutter devices
 flutter run -d <device-id>
 ```
 
-O primeiro fluxo lê e valida o QR do agente, permite revisar nome/IP, salva o perfil e tenta autenticar no WebSocket. Na tela inicial é possível selecionar uma máquina salva, ver o estado de conexão e tentar conectar novamente. Métricas, mídia, energia e Wake-on-LAN ainda serão adicionados nas próximas etapas.
+O fluxo de pareamento lê e valida o QR do agente, permite revisar nome/IP, salva o perfil e tenta autenticar no WebSocket. Na tela inicial é possível selecionar uma máquina salva, ver o estado de conexão, consultar telemetria/histórico e executar as ações de energia disponíveis. O botão **Ligar** envia um pacote mágico Wake-on-LAN por UDP broadcast, diretamente do app para a rede local; ele não depende do WebSocket.
 
 ## Arquitetura do app
 
@@ -52,14 +52,15 @@ O perfil persistido guarda somente nome, IP, porta e MAC. O token é separado e 
 - `features/machines/presentation/`: lista de máquinas, pareamento e estado da tela via Cubit.
 - `features/agent/domain/`: contrato do gateway e snapshot de conexão.
 - `features/agent/data/`: WebSocket, autenticação e recepção de mensagens do agente.
+- `features/wake_on_lan/`: validação de MAC no caso de uso e envio do pacote mágico UDP na porta 9 via broadcast IPv4.
 - `features/pairing/domain/` e `presentation/`: validação do payload e telas de QR/revisão.
 
 O token é escrito no armazenamento seguro antes do perfil. Se a gravação do perfil falhar, a gravação do token é desfeita. O app não mostra o token na interface.
 
 ## Próximas entregas
 
-1. Consumir `metrics_update`, `metrics_error` e `media_state` na visão geral e mídia.
-2. Implementar envio de comandos de mídia, energia e Wake-on-LAN.
-3. Acrescentar reconexão automática e estados de agente indisponível.
+1. Implementar reconexão automática do WebSocket após a máquina acordar.
+2. Completar a interface de mídia e os estados de disponibilidade por capacidade.
+3. Validar Wake-on-LAN em redes e placas físicas diferentes; o envio do pacote não confirma que a máquina acordou.
 
-As telas principais do protótipo são duas vistas da mesma máquina — visão geral e mídia — com seleção de máquinas, pareamento e ajustes em painéis modais. Energia e Wake-on-LAN devem ser ligados ao agente/protocolo somente na implementação Flutter, respeitando as confirmações de desligamento e reinício.
+O protótipo em `ui/` continua como referência visual. A implementação Flutter mantém as integrações reais em suas camadas e exige confirmação antes de desligar ou reiniciar.

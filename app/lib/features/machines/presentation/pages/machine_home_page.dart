@@ -8,6 +8,8 @@ import '../../../agent/domain/entities/agent_command.dart';
 import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../metrics/presentation/widgets/performance_overview.dart';
 import '../../../pairing/domain/entities/pairing_payload.dart';
+import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
+import '../../domain/entities/machine_profile.dart';
 import '../cubit/command_execution_state.dart';
 import '../cubit/machine_cubit.dart';
 import '../cubit/machine_state.dart';
@@ -186,7 +188,10 @@ class MachineHomePage extends StatelessWidget {
           const SizedBox(height: 28),
           _EnergyControlsSection(
             connection: state.connection,
+            profile: state.selectedProfile,
             executions: state.commandExecutions,
+            wakeOnLan: state.wakeOnLan,
+            onWake: () => context.read<MachineCubit>().wakeSelectedMachine(),
             onPowerAction: (action) =>
                 unawaited(_requestPowerAction(context, action)),
           ),
@@ -205,12 +210,18 @@ class MachineHomePage extends StatelessWidget {
 class _EnergyControlsSection extends StatelessWidget {
   const _EnergyControlsSection({
     required this.connection,
+    required this.profile,
     required this.executions,
+    required this.wakeOnLan,
+    required this.onWake,
     required this.onPowerAction,
   });
 
   final AgentConnectionSnapshot connection;
+  final MachineProfile? profile;
   final Map<String, CommandExecutionState> executions;
+  final WakeOnLanExecutionState wakeOnLan;
+  final VoidCallback onWake;
   final ValueChanged<String> onPowerAction;
 
   @override
@@ -252,18 +263,24 @@ class _EnergyControlsSection extends StatelessWidget {
                   .map((action) {
                     final execution = executions['power:${action.id}'];
                     final supported = connection.supportsPowerAction(action.id);
-                    final sending =
-                        execution?.status == CommandExecutionStatus.sending;
+                    final wake = action.id == 'wake';
+                    final wakeSupported = RegExp(
+                      r'^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$',
+                    ).hasMatch(profile?.mac ?? '');
+                    final sending = wake
+                        ? wakeOnLan.status == WakeOnLanStatus.sending
+                        : execution?.status == CommandExecutionStatus.sending;
                     return _EnergyActionItem(
                       width: tileWidth,
                       height: compact ? 96 : 115,
                       action: action,
                       online: online,
-                      supported: supported,
-                      enabled: online && supported,
+                      supported: wake ? wakeSupported : supported,
+                      enabled: wake ? wakeSupported : online && supported,
                       busy: sending,
                       execution: execution,
-                      onPressed: () => onPowerAction(action.id),
+                      wakeOnLan: wake ? wakeOnLan : null,
+                      onPressed: wake ? onWake : () => onPowerAction(action.id),
                     );
                   })
                   .toList(growable: false),
@@ -273,7 +290,7 @@ class _EnergyControlsSection extends StatelessWidget {
         if (!online) ...[
           const SizedBox(height: 12),
           Text(
-            'Conecte-se à máquina para executar ações de energia.',
+            'As demais ações de energia exigem conexão com a máquina.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -294,6 +311,7 @@ class _EnergyActionItem extends StatelessWidget {
     required this.enabled,
     required this.busy,
     required this.execution,
+    this.wakeOnLan,
     required this.onPressed,
   });
 
@@ -305,19 +323,28 @@ class _EnergyActionItem extends StatelessWidget {
   final bool enabled;
   final bool busy;
   final CommandExecutionState? execution;
+  final WakeOnLanExecutionState? wakeOnLan;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final status = switch (execution?.status) {
-      CommandExecutionStatus.accepted => 'Aceito pelo agente.',
-      CommandExecutionStatus.transitionUnconfirmed =>
-        'Transição não confirmada. Verifique a máquina.',
-      CommandExecutionStatus.failed => execution?.message,
-      _ => null,
-    };
-    final statusColor = execution?.status == CommandExecutionStatus.failed
+    final status = wakeOnLan == null
+        ? switch (execution?.status) {
+            CommandExecutionStatus.accepted => 'Aceito pelo agente.',
+            CommandExecutionStatus.transitionUnconfirmed =>
+              'Transição não confirmada. Verifique a máquina.',
+            CommandExecutionStatus.failed => execution?.message,
+            _ => null,
+          }
+        : switch (wakeOnLan!.status) {
+            WakeOnLanStatus.sent => wakeOnLan!.message,
+            WakeOnLanStatus.failed => wakeOnLan!.message,
+            _ => null,
+          };
+    final statusColor =
+        execution?.status == CommandExecutionStatus.failed ||
+            wakeOnLan?.status == WakeOnLanStatus.failed
         ? theme.colorScheme.error
         : execution?.status == CommandExecutionStatus.transitionUnconfirmed
         ? theme.colorScheme.secondary
@@ -334,6 +361,7 @@ class _EnergyActionItem extends StatelessWidget {
             busy: busy,
             icon: action.icon,
             label: busy ? 'Enviando…' : action.label,
+            subtitle: action.subtitle,
             onPressed: onPressed,
           ),
           if (status != null) ...[
@@ -343,10 +371,13 @@ class _EnergyActionItem extends StatelessWidget {
               textAlign: TextAlign.center,
               style: theme.textTheme.labelSmall?.copyWith(color: statusColor),
             ),
-          ] else if (online && !supported) ...[
+          ] else if ((action.id == 'wake' && !supported) ||
+              (online && !supported)) ...[
             const SizedBox(height: 8),
             Text(
-              'Indisponível neste agente',
+              action.id == 'wake'
+                  ? 'Endereço MAC inválido no cadastro'
+                  : 'Indisponível neste agente',
               textAlign: TextAlign.center,
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -360,14 +391,21 @@ class _EnergyActionItem extends StatelessWidget {
 }
 
 class _PowerAction {
-  const _PowerAction(this.id, this.label, this.icon);
+  const _PowerAction(this.id, this.label, this.icon, {this.subtitle});
 
   final String id;
   final String label;
   final IconData icon;
+  final String? subtitle;
 }
 
 const _powerActions = [
+  _PowerAction(
+    'wake',
+    'Ligar',
+    Icons.power_settings_new_outlined,
+    subtitle: 'Wake-on-LAN',
+  ),
   _PowerAction('shutdown', 'Desligar', Icons.power_settings_new_outlined),
   _PowerAction('lock', 'Bloquear', Icons.lock_outline),
   _PowerAction('restart', 'Reiniciar', Icons.restart_alt),
@@ -381,6 +419,7 @@ class _EnergyActionTile extends StatelessWidget {
     required this.busy,
     required this.icon,
     required this.label,
+    this.subtitle,
     required this.onPressed,
   });
 
@@ -390,6 +429,7 @@ class _EnergyActionTile extends StatelessWidget {
   final bool busy;
   final IconData icon;
   final String label;
+  final String? subtitle;
   final VoidCallback onPressed;
 
   @override
@@ -435,6 +475,15 @@ class _EnergyActionTile extends StatelessWidget {
                     fontSize: 13,
                   ),
                 ),
+                if (subtitle case final subtitle?) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

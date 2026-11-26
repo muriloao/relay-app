@@ -14,6 +14,8 @@ import '../../domain/entities/machine_profile.dart';
 import '../../domain/usecases/load_machine_profiles.dart';
 import '../../domain/usecases/read_machine_token.dart';
 import '../../domain/usecases/save_machine_pairing.dart';
+import '../../../wake_on_lan/domain/usecases/wake_machine.dart';
+import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
 import 'command_execution_state.dart';
 import 'machine_state.dart';
 
@@ -26,6 +28,7 @@ class MachineCubit extends Cubit<MachineState> {
     required LoadPerformanceHistory loadPerformanceHistory,
     required SavePerformanceSample savePerformanceSample,
     required AgentGateway agentGateway,
+    required WakeMachine wakeMachine,
   }) : this._(
          loadMachineProfiles,
          saveMachinePairing,
@@ -34,6 +37,7 @@ class MachineCubit extends Cubit<MachineState> {
          loadPerformanceHistory,
          savePerformanceSample,
          agentGateway,
+         wakeMachine,
        );
 
   MachineCubit._(
@@ -44,6 +48,7 @@ class MachineCubit extends Cubit<MachineState> {
     this._loadPerformanceHistory,
     this._savePerformanceSample,
     this._agentGateway,
+    this._wakeMachine,
   ) : super(MachineState(connection: _agentGateway.snapshot)) {
     _connectionSubscription = _agentGateway.updates.listen(
       _handleConnectionUpdate,
@@ -57,6 +62,7 @@ class MachineCubit extends Cubit<MachineState> {
   final LoadPerformanceHistory _loadPerformanceHistory;
   final SavePerformanceSample _savePerformanceSample;
   final AgentGateway _agentGateway;
+  final WakeMachine _wakeMachine;
   final Map<String, DateTime> _lastRecordedAt = {};
   Future<void> _historyWriteQueue = Future<void>.value();
   String? _telemetryProfileId;
@@ -108,6 +114,7 @@ class MachineCubit extends Cubit<MachineState> {
         performanceHistory: const [],
         isHistoryLoading: true,
         clearHistoryError: true,
+        wakeOnLan: const WakeOnLanExecutionState(),
       ),
     );
     await _loadHistory(profile.id);
@@ -124,6 +131,7 @@ class MachineCubit extends Cubit<MachineState> {
           performanceHistory: const [],
           isHistoryLoading: true,
           clearPageError: true,
+          wakeOnLan: const WakeOnLanExecutionState(),
         ),
       );
       await _loadHistory(profile.id);
@@ -137,6 +145,42 @@ class MachineCubit extends Cubit<MachineState> {
   Future<void> reconnectSelected() async {
     final profile = state.selectedProfile;
     if (profile != null) await _connect(profile);
+  }
+
+  Future<void> wakeSelectedMachine() async {
+    final profile = state.selectedProfile;
+    if (profile == null || state.wakeOnLan.status == WakeOnLanStatus.sending) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        wakeOnLan: const WakeOnLanExecutionState(
+          status: WakeOnLanStatus.sending,
+        ),
+      ),
+    );
+    try {
+      await _wakeMachine(profile.mac);
+      if (isClosed || state.selectedMachineId != profile.id) return;
+      emit(
+        state.copyWith(
+          wakeOnLan: const WakeOnLanExecutionState(
+            status: WakeOnLanStatus.sent,
+            message: 'Pacote enviado. A máquina pode levar alguns segundos para iniciar.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (isClosed || state.selectedMachineId != profile.id) return;
+      emit(
+        state.copyWith(
+          wakeOnLan: WakeOnLanExecutionState(
+            status: WakeOnLanStatus.failed,
+            message: 'Não foi possível enviar o pacote Wake-on-LAN: $error',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _loadHistory(String machineId) async {

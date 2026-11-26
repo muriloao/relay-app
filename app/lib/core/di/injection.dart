@@ -19,6 +19,9 @@ import '../../features/metrics/data/repositories/performance_history_repository_
 import '../../features/metrics/domain/repositories/performance_history_repository.dart';
 import '../../features/metrics/domain/usecases/load_performance_history.dart';
 import '../../features/metrics/domain/usecases/save_performance_sample.dart';
+import '../../features/wake_on_lan/data/repositories/udp_wake_on_lan_repository.dart';
+import '../../features/wake_on_lan/domain/repositories/wake_on_lan_repository.dart';
+import '../../features/wake_on_lan/domain/usecases/wake_machine.dart';
 import '../../router/app_router.dart';
 import 'service_locator.dart';
 
@@ -90,6 +93,10 @@ Future<void> configureDependencies() async {
       () => SavePerformanceSample(getIt<PerformanceHistoryRepository>()),
     )
     ..registerLazySingleton<AgentGateway>(AgentWebSocketDataSource.new)
+    ..registerLazySingleton<WakeOnLanRepository>(UdpWakeOnLanRepository.new)
+    ..registerLazySingleton<WakeMachine>(
+      () => WakeMachine(getIt<WakeOnLanRepository>()),
+    )
     ..registerLazySingleton<ExecuteAgentCommand>(
       () => ExecuteAgentCommand(getIt<AgentGateway>()),
     )
@@ -102,6 +109,7 @@ Future<void> configureDependencies() async {
         loadPerformanceHistory: getIt<LoadPerformanceHistory>(),
         savePerformanceSample: getIt<SavePerformanceSample>(),
         agentGateway: getIt<AgentGateway>(),
+        wakeMachine: getIt<WakeMachine>(),
       ),
     )
     ..registerSingleton(createAppRouter());

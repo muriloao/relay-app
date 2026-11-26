@@ -2,6 +2,7 @@ import '../../../agent/domain/entities/agent_connection_snapshot.dart';
 import '../../../metrics/domain/entities/performance_sample.dart';
 import 'command_execution_state.dart';
 import '../../domain/entities/machine_profile.dart';
+import '../../../wake_on_lan/presentation/wake_on_lan_execution_state.dart';
 
 class MachineState {
   const MachineState({
@@ -14,6 +15,7 @@ class MachineState {
     this.performanceHistory = const [],
     this.isHistoryLoading = false,
     this.historyError,
+    this.wakeOnLan = const WakeOnLanExecutionState(),
   });
 
   final List<MachineProfile> profiles;
@@ -25,6 +27,7 @@ class MachineState {
   final List<PerformanceSample> performanceHistory;
   final bool isHistoryLoading;
   final String? historyError;
+  final WakeOnLanExecutionState wakeOnLan;
 
   MachineProfile? get selectedProfile {
     for (final profile in profiles) {
@@ -46,6 +49,7 @@ class MachineState {
     bool? isHistoryLoading,
     String? historyError,
     bool clearHistoryError = false,
+    WakeOnLanExecutionState? wakeOnLan,
   }) => MachineState(
     profiles: profiles ?? this.profiles,
     selectedMachineId: clearSelectedMachine
@@ -58,5 +62,6 @@ class MachineState {
     performanceHistory: performanceHistory ?? this.performanceHistory,
     isHistoryLoading: isHistoryLoading ?? this.isHistoryLoading,
     historyError: clearHistoryError ? null : historyError ?? this.historyError,
+    wakeOnLan: wakeOnLan ?? this.wakeOnLan,
   );
 }

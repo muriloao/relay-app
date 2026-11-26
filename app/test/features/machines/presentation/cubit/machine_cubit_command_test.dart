@@ -18,6 +18,8 @@ import 'package:relay_app/features/metrics/domain/entities/performance_sample.da
 import 'package:relay_app/features/metrics/domain/repositories/performance_history_repository.dart';
 import 'package:relay_app/features/metrics/domain/usecases/load_performance_history.dart';
 import 'package:relay_app/features/metrics/domain/usecases/save_performance_sample.dart';
+import 'package:relay_app/features/wake_on_lan/domain/repositories/wake_on_lan_repository.dart';
+import 'package:relay_app/features/wake_on_lan/domain/usecases/wake_machine.dart';
 
 void main() {
   late _FakeAgentGateway gateway;
@@ -34,6 +36,7 @@ void main() {
       loadPerformanceHistory: LoadPerformanceHistory(repository),
       savePerformanceSample: SavePerformanceSample(repository),
       agentGateway: gateway,
+      wakeMachine: WakeMachine(_FakeWakeOnLanRepository()),
     );
   });
 
@@ -124,6 +127,7 @@ void main() {
       loadPerformanceHistory: LoadPerformanceHistory(repository),
       savePerformanceSample: SavePerformanceSample(repository),
       agentGateway: gateway,
+      wakeMachine: WakeMachine(_FakeWakeOnLanRepository()),
     );
     addTearDown(metricCubit.close);
     await metricCubit.loadProfiles();
@@ -221,4 +225,9 @@ class _TestRepository
   Future<void> append(String machineId, PerformanceSample sample) async {
     history[machineId] = [...?history[machineId], sample];
   }
+}
+
+class _FakeWakeOnLanRepository implements WakeOnLanRepository {
+  @override
+  Future<void> sendMagicPacket(String macAddress) async {}
 }
